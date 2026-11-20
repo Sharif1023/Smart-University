@@ -1,0 +1,82 @@
+# Fresh database seed counts
+
+Counts after a clean migration and seed, before workflow tests. A second seed produced identical counts. The seven original demo accounts are retained alongside 30 additional accounts per role. All records are synthetic. Historical cohorts illustrate completed workflows. LAB-2 supports live demonstrations.
+
+| Table or role | Records |
+|---|---:|
+| academic_years | 32 |
+| advising | 31 |
+| advisor_history | 30 |
+| assessments | 60 |
+| assessment_marks | 60 |
+| attendance | 63 |
+| attendance_notes | 30 |
+| attendance_status | 63 |
+| audit_logs | 32 |
+| authors | 43 |
+| books | 31 |
+| book_authors | 63 |
+| book_copies | 63 |
+| book_editions | 30 |
+| class_sessions | 38 |
+| courses | 63 |
+| course_descriptions | 30 |
+| departments | 32 |
+| event_details | 30 |
+| faculty | 93 |
+| faculty_details | 90 |
+| fee_rules | 30 |
+| fee_types | 30 |
+| fine_events | 30 |
+| grade_bands | 310 |
+| grade_publications | 36 |
+| invoices | 31 |
+| invoice_details | 31 |
+| invoice_items | 31 |
+| loans | 30 |
+| loan_copies | 30 |
+| marking_policy | 30 |
+| materials | 30 |
+| notices | 31 |
+| notice_details | 30 |
+| notice_reads | 30 |
+| notifications | 30 |
+| offerings | 33 |
+| prerequisites | 31 |
+| prerequisite_grades | 30 |
+| programs | 31 |
+| program_rules | 31 |
+| receipts | 61 |
+| receipt_details | 61 |
+| registrations | 37 |
+| registration_events | 30 |
+| results | 37 |
+| role_permissions | 105 |
+| rooms | 32 |
+| room_blocks | 30 |
+| room_details | 30 |
+| routine_conflicts | 30 |
+| routine_reviews | 30 |
+| section_details | 33 |
+| semesters | 33 |
+| students | 36 |
+| student_details | 30 |
+| theses | 30 |
+| thesis_assignments | 30 |
+| thesis_events | 30 |
+| thesis_feedback | 30 |
+| thesis_updates | 30 |
+| thesis_vivas | 30 |
+| timetable | 30 |
+| time_slots | 30 |
+| unavailable | 30 |
+| users | 222 |
+| role.ADMIN | 30 |
+| role.STUDENT | 30 |
+| role.TEACHER | 30 |
+| role.ADVISOR | 30 |
+| role.ACCOUNTS_OFFICER | 30 |
+| role.LIBRARIAN | 30 |
+| role.THESIS_SUPERVISOR | 30 |
+
+Run npm run db:verify-seed to check your current database.

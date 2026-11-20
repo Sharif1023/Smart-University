@@ -1,0 +1,47 @@
+{
+  "name": "smart-university-erp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:api": "node --env-file-if-exists=.env --watch server/index.js",
+    "dev:web": "vite --host 127.0.0.1",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:migrate": "node --env-file-if-exists=.env db/migrate.js",
+    "db:seed": "node --env-file-if-exists=.env db/seed.js",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "node --test tests/unit.test.js",
+    "test:integration": "node --env-file-if-exists=.env --test tests/integration.test.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint server web db scripts tests",
+    "build": "npm run typecheck && vite build",
+    "test:e2e": "node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test",
+    "test:operations": "node --env-file-if-exists=.env --test tests/operations.test.js",
+    "db:verify-seed": "node --env-file-if-exists=.env db/verify-seed.js",
+    "test:blueprint": "node --env-file-if-exists=.env --test tests/blueprint.test.js"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "express-rate-limit": "8.2.1",
+    "helmet": "8.1.0",
+    "pg": "^8.23.1",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "eslint": "9.39.1",
+    "globals": "16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.4",
+    "vite": "7.1.12"
+  }
+}

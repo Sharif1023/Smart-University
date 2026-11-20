@@ -1,0 +1,36 @@
+name: Campus checks
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: campus_test
+          MYSQL_USER: campus
+          MYSQL_PASSWORD: ci-campus-only
+          MYSQL_ROOT_PASSWORD: ci-root-only
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost" --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: campus_test
+      DB_USER: campus
+      DB_PASSWORD: ci-campus-only
+      DEMO_PASSWORD: CI-Only-Campus-2026
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate && npm run db:seed
+      - run: npm run lint && npm test && npm run build
+      - run: npm run test:integration
+      - run: npm run test:operations
+      - run: npm run db:verify-seed && npm run test:blueprint
+      - run: npx playwright install --with-deps chromium --only-shell
+      - run: npm run test:e2e
