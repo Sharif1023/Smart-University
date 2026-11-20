@@ -49,7 +49,13 @@ export async function api<T>(
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/auth/login"))
       window.dispatchEvent(new Event("signed-out"));
-    throw Error(json.error?.message || "Request failed.");
+    const message = json.error?.message || "Request failed.";
+    const reference = json.error?.requestId;
+    throw Error(
+      res.status >= 500 && reference
+        ? `${message} (Reference: ${reference})`
+        : message,
+    );
   }
   return json;
 }

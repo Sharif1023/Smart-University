@@ -189,7 +189,19 @@ app.use((error, req, res, next) => {
   const status = conflict
     ? 409
     : error.status || 500;
-  if (status >= 500) console.error(req.requestId, error.code || error.name);
+  if (status >= 500) {
+    const diagnostic = {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.path,
+      code: error.code || error.name,
+    };
+    if (process.env.NODE_ENV !== "production") {
+      diagnostic.message = error.message;
+      diagnostic.stack = error.stack;
+    }
+    console.error("API request failed:", diagnostic);
+  }
   res
     .status(status)
     .json({

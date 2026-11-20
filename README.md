@@ -4,7 +4,7 @@ Campus Desk হলো বিশ্ববিদ্যালয়ের role-base
 
 ## Windows-এ এক ক্লিকে চালানো
 
-**Node.js 24 LTS** এবং **PostgreSQL** ইনস্টল করুন। Windows Services থেকে PostgreSQL service চালু আছে নিশ্চিত করুন। Windows launcher-এর আগে `.env.example` কপি করে `.env` বানাবেন না; launcher নিজেই connection config তৈরি করবে। Source checkout হলে project folder-এ একবার `npm ci` চালান। এরপর **START-WINDOWS.cmd** চালান।
+**Node.js 24 LTS** এবং **PostgreSQL** ইনস্টল করুন। Windows Services থেকে PostgreSQL service চালু আছে নিশ্চিত করুন। Windows launcher-এর আগে `.env.example` কপি করে `.env` বানাবেন না; launcher নিজেই connection config তৈরি করবে। Source checkout হলে project folder-এ একবার `npm.cmd ci` চালান। এরপর **START-WINDOWS.cmd** চালান।
 
 প্রথমবার launcher PostgreSQL administrator-এর host, port, username ও password চাইবে। এটি project-এর জন্য আলাদা database ও application user বানিয়ে `.env`-এ সংযোগের তথ্য রাখবে; administrator password `.env`-এ রাখে না। এরপর schema ও demo data বসিয়ে app চালু করবে। পরেরবার administrator তথ্য চাইবে না। App খুলবে **http://localhost:4000**-এ। চলার সময় launcher window খোলা রাখুন; API বন্ধ করতে **Ctrl+C** চাপুন। PostgreSQL service ও database চালু থাকবে।
 
@@ -25,11 +25,10 @@ Shared বা production machine-এ নিজের শক্তিশালী
 if (!(Test-Path .env) -or (Get-Item .env).Length -eq 0) {
   Copy-Item .env.example .env -Force
 }
-npm ci
-npm run db:migrate
-npm run db:seed
-npm run build
-npm start
+npm.cmd ci
+npm.cmd run db:setup
+npm.cmd run build
+npm.cmd start
 ```
 
 আগের `.env` থাকলে এর `DB_*` মানগুলো নতুন PostgreSQL user/database-এর সাথে মিলিয়ে দিন। One-click launcher পুরোনো পরিচিত database config পেলে সেটি `.env.previous`-এ রেখে নতুন config তৈরি করে।
@@ -40,23 +39,23 @@ API বন্ধ করতে **Ctrl+C** চাপুন। পুরো Postgre
 
 ## Development mode
 
-প্রথমবার development mode চালালে PostgreSQL service চালু রেখে `npm run db:migrate` ও `npm run db:seed` চালান। `.env`-এ `APP_ORIGIN=http://localhost:5173` করে চালান:
+প্রথমবার development mode চালালে PostgreSQL service চালু রেখে `npm.cmd run db:setup` চালান। `.env`-এ `APP_ORIGIN=http://localhost:5173` করে development server চালান:
 
 ```powershell
-npm run dev
+npm.cmd run dev
 ```
 
-তারপর **http://localhost:5173** খুলুন। এই command API ও Vite একসঙ্গে চালায়। Production-style local server চালাতে `.env`-এ `APP_ORIGIN=http://localhost:4000` দিয়ে `npm run build` ও `npm start` চালান।
+তারপর **http://localhost:5173** খুলুন। এই command API ও Vite একসঙ্গে চালায়। Production-style local server চালাতে `.env`-এ `APP_ORIGIN=http://localhost:4000` দিয়ে `npm.cmd run build` ও `npm.cmd start` চালান।
 
 Project check:
 
 ```powershell
-npm run lint
-npm test
-npm run build
+npm.cmd run lint
+npm.cmd test
+npm.cmd run build
 ```
 
-Integration, operations, blueprint ও browser suite database ব্যবহার করে। `.env`-এ `_test` দিয়ে শেষ আলাদা PostgreSQL database দিন, migrate ও seed করুন, তারপর দরকারি `test:*` command চালান। এসব test database-এ record তৈরি বা পরিবর্তন করে—প্রয়োজনীয় data-সহ database-এ চালাবেন না।
+Integration, operations, blueprint ও browser suite database ব্যবহার করে। `.env`-এ `_test` দিয়ে শেষ আলাদা PostgreSQL database দিন, `npm.cmd run db:setup` চালান, তারপর দরকারি `test:*` command চালান। এসব test database-এ record তৈরি বা পরিবর্তন করে—প্রয়োজনীয় data-সহ database-এ চালাবেন না।
 
 ## Demo account
 
@@ -78,7 +77,7 @@ Integration, operations, blueprint ও browser suite database ব্যবহা
 
 অন্য PostgreSQL instance ব্যবহার করতে `.env`-এ `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` ও `DB_PASSWORD` দিন। Windows launcher-এর প্রথম setup-এ PostgreSQL administrator-এর connection details শুধু terminal-এ চাওয়া হয়।
 
-Schema আছে `db/001_foundation.sql` থেকে `db/006_resource_history.sql` পর্যন্ত। নতুন versioned schema change বসাতে `npm run db:migrate`, আর local demo record যোগ করতে `npm run db:seed` চালান। Seed command development-এর জন্য; এটি demo account ও record তৈরি করে।
+Schema আছে `db/001_foundation.sql` থেকে `db/006_resource_history.sql` পর্যন্ত। প্রথম setup-এ `npm.cmd run db:setup` একসাথে সব migration এবং local demo seed চালায়। পরে শুধু schema change বসাতে `npm.cmd run db:migrate`, আর demo record যোগ করতে `npm.cmd run db:seed` চালাতে পারেন। Seed command development-এর জন্য; এটি demo account ও record তৈরি করে।
 
 এই সংস্করণে application PostgreSQL-এ চলে। আগের MySQL/MariaDB database-এর record স্বয়ংক্রিয়ভাবে কপি হয় না। পুরোনো database-এর backup রেখে দিন; এই project সেটি পরিবর্তন করে না। পুরোনো record ব্যবহার করতে হলে আলাদা, যাচাই করা data migration করতে হবে।
 

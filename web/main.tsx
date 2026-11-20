@@ -21,9 +21,30 @@ import {
   type Row,
 } from "./shared";
 import "./style.css";
+const DEMO_PASSWORD = "CampusDemo2026!";
+const demoAccounts = [
+  { role: "ADMIN", label: "Admin", email: "admin@campus.test" },
+  { role: "STUDENT", label: "Student", email: "student@campus.test" },
+  { role: "TEACHER", label: "Teacher", email: "teacher@campus.test" },
+  { role: "ADVISOR", label: "Advisor", email: "advisor@campus.test" },
+  {
+    role: "ACCOUNTS_OFFICER",
+    label: "Accounts officer",
+    email: "accounts_officer@campus.test",
+  },
+  { role: "LIBRARIAN", label: "Librarian", email: "librarian@campus.test" },
+  {
+    role: "THESIS_SUPERVISOR",
+    label: "Thesis supervisor",
+    email: "thesis_supervisor@campus.test",
+  },
+] as const;
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [err, error] = useState(""),
     [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [selectedDemo, setSelectedDemo] = useState("");
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -58,14 +79,49 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
         <form onSubmit={submit}>
           <h2>Sign in</h2>
           <p className="muted">Enter your university account details.</p>
+          <section className="demo-picker" aria-label="Demo accounts">
+            <div className="demo-picker-heading">
+              <strong>Choose a demo role</strong>
+              <span>Click a role to fill the sign-in form.</span>
+            </div>
+            <div className="demo-account-list" role="group" aria-label="Demo roles">
+              {demoAccounts.map((account) => (
+                <button
+                  key={account.role}
+                  className="demo-account"
+                  type="button"
+                  aria-label={`Use ${account.label} demo account`}
+                  aria-pressed={selectedDemo === account.role}
+                  onClick={() => {
+                    setEmail(account.email);
+                    setPassword(DEMO_PASSWORD);
+                    setSelectedDemo(account.role);
+                    error("");
+                  }}
+                >
+                  <strong>{account.label}</strong>
+                  <span className="demo-account-email">{account.email}</span>
+                  <small>Password: <code>{DEMO_PASSWORD}</code></small>
+                </button>
+              ))}
+            </div>
+            <p className="demo-password-note">
+              These credentials use the default <code>DEMO_PASSWORD</code>. If
+              you changed it in <code>.env</code>, enter that password instead.
+            </p>
+          </section>
           <label>
             Email address
             <input
               name="email"
               type="email"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setSelectedDemo("");
+              }}
               autoComplete="username"
               required
-              autoFocus
               placeholder="name@university.edu"
             />
           </label>
@@ -74,6 +130,11 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
             <input
               name="password"
               type="password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setSelectedDemo("");
+              }}
               autoComplete="current-password"
               required
             />

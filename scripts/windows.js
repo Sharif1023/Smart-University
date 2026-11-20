@@ -188,8 +188,7 @@ async function main() {
 
   run("node_modules/typescript/bin/tsc", ["--noEmit"]);
   run("node_modules/vite/bin/vite.js", ["build"]);
-  run("db/migrate.js");
-  run("db/seed.js");
+  run("db/setup.js");
 
   console.log("Open " + url + " · Keep this window open. Press Ctrl+C to stop.");
   const server = spawn(process.execPath, ["server/index.js"], {

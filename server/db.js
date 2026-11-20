@@ -13,7 +13,7 @@ types.setTypeParser(20, (value) => {
 
 const client = new Pool({
   host: process.env.DB_HOST || "127.0.0.1",
-  port: Number(process.env.DB_PORT || 5433),
+  port: Number(process.env.DB_PORT || 5432),
   database: process.env.DB_NAME || "smart_university",
   user: process.env.DB_USER || "campus",
   password: process.env.DB_PASSWORD || "local-campus-dev",
