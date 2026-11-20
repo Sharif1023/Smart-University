@@ -47,7 +47,7 @@ export async function mapLegacy(db) {
     );
     for (const l of old) {
       const [c] = await q(
-        "SELECT c.id FROM book_copies c WHERE c.book=? AND NOT EXISTS(SELECT 1 FROM loan_copies lc JOIN loans x ON x.id=lc.loan WHERE lc.copy_id=c.id AND (x.returned IS NULL OR x.returned>?) AND (? IS NULL OR x.issued<?)) ORDER BY c.id LIMIT 1",
+        "SELECT c.id FROM book_copies c WHERE c.book=? AND NOT EXISTS(SELECT 1 FROM loan_copies lc JOIN loans x ON x.id=lc.loan WHERE lc.copy_id=c.id AND (x.returned IS NULL OR x.returned>?) AND (?::date IS NULL OR x.issued<?)) ORDER BY c.id LIMIT 1",
         b.id,
         l.issued,
         l.returned,

@@ -10,8 +10,6 @@
     "dev": "node scripts/dev.js",
     "dev:api": "node --env-file-if-exists=.env --watch server/index.js",
     "dev:web": "vite --host 127.0.0.1",
-    "db:up": "docker compose up -d --wait",
-    "db:down": "docker compose down",
     "db:migrate": "node --env-file-if-exists=.env db/migrate.js",
     "db:seed": "node --env-file-if-exists=.env db/seed.js",
     "start": "node --env-file-if-exists=.env server/index.js",

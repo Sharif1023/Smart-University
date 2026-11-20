@@ -35,4 +35,4 @@ Student endpoints such as `/students/me`, `/students/me/attendance`, `/students/
 
 ## PostgreSQL setup
 
-Docker Compose starts PostgreSQL 17 on `127.0.0.1:5433`. The container's `postgres` administrator creates a separate `campus` login for the application. The app uses the `DB_*` settings and UTC database sessions. Data is stored in the `campus_postgres` Docker volume. The demo seed is intended for local development, not production.
+PostgreSQL is installed and run as a normal local Windows service. On its first run, the Windows launcher asks for an administrator connection, creates a uniquely named database and restricted application login, and saves only the app connection settings in `.env`. Subsequent runs reuse that database. The app uses the `DB_*` settings and UTC database sessions. The demo seed is intended for local development, not production.

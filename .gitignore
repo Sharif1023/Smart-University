@@ -3,3 +3,6 @@ dist/
 .env
 *.log
 test-results/
+.local-setup.json
+.env.tmp
+.env.previous

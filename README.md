@@ -2,58 +2,51 @@
 
 Campus Desk হলো বিশ্ববিদ্যালয়ের role-based ERP। Frontend React ও TypeScript, API Express, আর database PostgreSQL। এতে academic records, course registration, attendance, finance, library circulation, class routine, notices, notifications ও thesis supervision আছে।
 
-## Windows-এ চালানো
+## Windows-এ এক ক্লিকে চালানো
 
-**Node.js 24 LTS** এবং **Docker Desktop** ইনস্টল করে Docker Desktop চালু রাখুন। Project extract করে **START-WINDOWS.cmd** চালান। `.env` না থাকলে launcher local default দিয়ে বানাবে, PostgreSQL চালু করবে, schema ও demo data বসাবে, তারপর **http://localhost:4000** খুলবে। App চালানোর সময় launcher window খোলা রাখুন। API বন্ধ করতে **Ctrl+C** চাপুন; PostgreSQL ও তার data Docker-এ থেকে যাবে।
+**Node.js 24 LTS** এবং **PostgreSQL** ইনস্টল করুন। Windows Services থেকে PostgreSQL service চালু আছে নিশ্চিত করুন। Windows launcher-এর আগে `.env.example` কপি করে `.env` বানাবেন না; launcher নিজেই connection config তৈরি করবে। Source checkout হলে project folder-এ একবার `npm ci` চালান। এরপর **START-WINDOWS.cmd** চালান।
 
-Source checkout হলে প্রথমবার dependencies ইনস্টল করুন:
+প্রথমবার launcher PostgreSQL administrator-এর host, port, username ও password চাইবে। এটি project-এর জন্য আলাদা database ও application user বানিয়ে `.env`-এ সংযোগের তথ্য রাখবে; administrator password `.env`-এ রাখে না। এরপর schema ও demo data বসিয়ে app চালু করবে। পরেরবার administrator তথ্য চাইবে না। App খুলবে **http://localhost:4000**-এ। চলার সময় launcher window খোলা রাখুন; API বন্ধ করতে **Ctrl+C** চাপুন। PostgreSQL service ও database চালু থাকবে।
 
-```powershell
-npm ci
-```
-
-এরপর launcher চালালেই database ও app শুরু হবে। প্রথমবার Docker PostgreSQL image নামানোর জন্য এক মিনিট লাগতে পারে।
+আগের database config `.env`-এ থাকলে launcher সেটি `.env.previous` নামে রেখে নতুন local PostgreSQL connection config বানায়। পুরোনো database-এর data আলাদা থাকে; স্বয়ংক্রিয়ভাবে কপি হয় না।
 
 ## Terminal থেকে চালানো
 
-Project folder-এর PowerShell-এ চালান:
+PostgreSQL administrator হিসেবে SQL Shell বা `psql` খুলে project-এর user ও database তৈরি করুন:
+
+```sql
+CREATE ROLE campus WITH LOGIN PASSWORD 'local-campus-dev';
+CREATE DATABASE smart_university OWNER campus;
+```
+
+Shared বা production machine-এ নিজের শক্তিশালী password দিন এবং একই password `.env`-এর `DB_PASSWORD`-এ রাখুন। এরপর project folder-এর PowerShell-এ চালান:
 
 ```powershell
 if (!(Test-Path .env) -or (Get-Item .env).Length -eq 0) {
   Copy-Item .env.example .env -Force
 }
 npm ci
-npm run db:up
 npm run db:migrate
 npm run db:seed
 npm run build
 npm start
 ```
 
-এরপর **http://localhost:4000** খুলুন। নমুনা `.env` local PostgreSQL container-কে `5433` port-এ চালায়; API সীমিত permission-সহ `campus` database role ব্যবহার করে। Default credentials শুধু নিজের local machine-এ ব্যবহার করুন।
+আগের `.env` থাকলে এর `DB_*` মানগুলো নতুন PostgreSQL user/database-এর সাথে মিলিয়ে দিন। One-click launcher পুরোনো পরিচিত database config পেলে সেটি `.env.previous`-এ রেখে নতুন config তৈরি করে।
 
-API বন্ধ করতে **Ctrl+C** চাপুন। PostgreSQL বন্ধ করে data রেখে দিতে:
+তারপর **http://localhost:4000** খুলুন। নমুনা `.env` `127.0.0.1:5432`-এর PostgreSQL-এ সংযোগ করে। API `campus` role ব্যবহার করে।
 
-```powershell
-npm run db:down
-```
-
-Database মুছে ফেলতে না চাইলে `docker compose down -v` চালাবেন না।
+API বন্ধ করতে **Ctrl+C** চাপুন। পুরো PostgreSQL service বন্ধ করতে Windows Services থেকে PostgreSQL service stop করুন; database files অক্ষত থাকবে।
 
 ## Development mode
 
-প্রথমবার development mode চালালে আগে `npm run db:up`, `npm run db:migrate`, ও `npm run db:seed` চালান। এরপর `.env`-এর `APP_ORIGIN`-কে `http://localhost:5173` করে চালান:
+প্রথমবার development mode চালালে PostgreSQL service চালু রেখে `npm run db:migrate` ও `npm run db:seed` চালান। `.env`-এ `APP_ORIGIN=http://localhost:5173` করে চালান:
 
 ```powershell
 npm run dev
 ```
 
-তারপর **http://localhost:5173** খুলুন। এই command API ও Vite একসঙ্গে চালায়। Production-style local server চালাতে `.env`-এ `APP_ORIGIN=http://localhost:4000` দিন, তারপর:
-
-```powershell
-npm run build
-npm start
-```
+তারপর **http://localhost:5173** খুলুন। এই command API ও Vite একসঙ্গে চালায়। Production-style local server চালাতে `.env`-এ `APP_ORIGIN=http://localhost:4000` দিয়ে `npm run build` ও `npm start` চালান।
 
 Project check:
 
@@ -83,7 +76,7 @@ Integration, operations, blueprint ও browser suite database ব্যবহা
 
 ## PostgreSQL configuration
 
-অন্য PostgreSQL instance ব্যবহার করতে `.env`-এ `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` ও `DB_PASSWORD` দিন। `POSTGRES_ADMIN_USER` এবং `POSTGRES_ADMIN_PASSWORD` শুধু Docker-এর প্রথম initialization-এ local database তৈরি ও সীমিত application role বানাতে লাগে।
+অন্য PostgreSQL instance ব্যবহার করতে `.env`-এ `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` ও `DB_PASSWORD` দিন। Windows launcher-এর প্রথম setup-এ PostgreSQL administrator-এর connection details শুধু terminal-এ চাওয়া হয়।
 
 Schema আছে `db/001_foundation.sql` থেকে `db/006_resource_history.sql` পর্যন্ত। নতুন versioned schema change বসাতে `npm run db:migrate`, আর local demo record যোগ করতে `npm run db:seed` চালান। Seed command development-এর জন্য; এটি demo account ও record তৈরি করে।
 
