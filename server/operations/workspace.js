@@ -485,7 +485,7 @@ operations.get("/notice-file/:id", async (req, res) => {
 operations.get("/file/:id", async (req, res) => {
   const [file] = await rows(
     pool,
-    "SELECT e.document,e.filename FROM thesis_updates e JOIN theses t ON t.id=e.thesis WHERE e.id=? AND e.document IS NOT NULL AND (?='ADMIN' OR t.student=? OR t.supervisor=?)",
+    "SELECT e.document,e.filename FROM thesis_updates e JOIN theses t ON t.id=e.thesis WHERE e.id=? AND e.document IS NOT NULL AND (?::text='ADMIN' OR t.student=? OR t.supervisor=?)",
     [req.params.id, req.user.role, req.user.id, req.user.id],
   );
   if (!file) fail(404, "NOT_FOUND", "Document unavailable.");
