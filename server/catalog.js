@@ -34,7 +34,7 @@ export function validate(model, input) {
         v.trim().length > (field === "code" ? 24 : 140)
       )
         invalid("Enter a valid " + field + ".");
-      values[field] = v.trim();
+      values[field] = field === "code" ? v.trim().toUpperCase() : v.trim();
     } else if (field.endsWith("_on")) {
       if (
         typeof v !== "string" ||

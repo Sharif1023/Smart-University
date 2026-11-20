@@ -1,5 +1,12 @@
 # Verification
 
+## Current workspace checks
+
+- `npm run lint` — passed.
+- `npm test` — passed (5 unit tests).
+- `npm run build` — passed, including the TypeScript check.
+- PostgreSQL migrations and database-backed suites — not run here; Docker Desktop and `psql` are not available in this environment.
+
 Run the static checks from the project root:
 
 ```powershell

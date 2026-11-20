@@ -5,7 +5,7 @@ const { Pool, types } = pg;
 // Keep PostgreSQL date values as database strings so API responses retain their
 // academic calendar date and timestamp instead of inheriting the host timezone.
 types.setTypeParser(1082, (value) => value); // date
-types.setTypeParser(1114, (value) => value); // timestamp without time zone
+types.setTypeParser(1114, (value) => value.replace(/(\.\d{3})\d+$/, "$1")); // timestamp without time zone
 types.setTypeParser(20, (value) => {
   const number = Number(value);
   return Number.isSafeInteger(number) ? number : value;
@@ -22,6 +22,9 @@ const client = new Pool({
   idleTimeoutMillis: 30000,
   application_name: "smart-university-erp",
   options: "-c timezone=UTC",
+});
+client.on("error", (error) => {
+  console.error("PostgreSQL pool connection error:", error.code || error.name);
 });
 
 const idColumnCache = new Map();

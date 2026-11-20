@@ -19,8 +19,8 @@ function runDocker() {
     throw Error("PostgreSQL did not start. Check Docker Desktop and compose.yaml.");
 }
 
-function run(file) {
-  const result = spawnSync(process.execPath, [file], {
+function run(file, args = []) {
+  const result = spawnSync(process.execPath, [file, ...args], {
     stdio: "inherit",
     env: process.env,
   });
@@ -30,7 +30,8 @@ function run(file) {
 }
 
 async function main() {
-  if (Number(process.versions.node.split(".")[0]) < 22)
+  const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+  if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 16))
     throw Error("Install Node.js 24 LTS and reopen this launcher.");
 
   if (!existsSync(".env") || statSync(".env").size === 0) {
@@ -46,15 +47,17 @@ async function main() {
   process.env.APP_ORIGIN = url;
   process.env.HOST = "127.0.0.1";
 
-  runDocker();
-  run("db/migrate.js");
-  run("db/seed.js");
-
   const probe = net.createServer();
   await new Promise((resolve, reject) =>
     probe.once("error", reject).listen(port, "127.0.0.1", resolve),
   );
   await new Promise((resolve) => probe.close(resolve));
+
+  run("node_modules/typescript/bin/tsc", ["--noEmit"]);
+  run("node_modules/vite/bin/vite.js", ["build"]);
+  runDocker();
+  run("db/migrate.js");
+  run("db/seed.js");
 
   console.log("Open " + url + " · Keep this window open. Press Ctrl+C to stop.");
   const server = spawn(process.execPath, ["server/index.js"], {
@@ -87,6 +90,10 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  console.error(
+    error.code === "EADDRINUSE"
+      ? "Port " + (process.env.PORT || 4000) + " is in use. Change PORT in .env and try again."
+      : error.message,
+  );
   process.exitCode = 1;
 });

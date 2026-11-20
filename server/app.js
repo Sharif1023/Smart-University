@@ -185,7 +185,8 @@ app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   const duplicate = error.code === "23505";
   const relatedRecord = error.code === "23503";
-  const status = duplicate || relatedRecord
+  const conflict = duplicate || relatedRecord || error.status === 409;
+  const status = conflict
     ? 409
     : error.status || 500;
   if (status >= 500) console.error(req.requestId, error.code || error.name);
@@ -197,7 +198,9 @@ app.use((error, req, res, next) => {
           status === 409
             ? duplicate
               ? "DUPLICATE"
-              : "RELATED_RECORD"
+              : relatedRecord
+                ? "RELATED_RECORD"
+                : "CONFLICT"
             : status >= 500
               ? "INTERNAL_ERROR"
               : error.code || "INVALID_REQUEST",
@@ -205,7 +208,9 @@ app.use((error, req, res, next) => {
           status === 409
             ? duplicate
               ? "This code is already in use."
-              : "A related record prevents this change."
+              : relatedRecord
+                ? "A related record prevents this change."
+                : "The request conflicts with the current record."
             : status >= 500
               ? "The server could not complete this request."
               : error.message,
