@@ -13,6 +13,7 @@
     "db:migrate": "node --env-file-if-exists=.env db/setup.js --schema-only",
     "db:seed": "node --env-file-if-exists=.env db/setup.js --seed-only",
     "db:setup": "node --env-file-if-exists=.env db/setup.js",
+    "prestart": "npm run build",
     "start": "node --env-file-if-exists=.env server/index.js",
     "test": "node --test tests/unit.test.js",
     "test:integration": "node --env-file-if-exists=.env --test tests/integration.test.js",

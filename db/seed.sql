@@ -4,7 +4,7 @@ DELIMITER $$
 DROP PROCEDURE IF EXISTS seed_campus_desk$$
 CREATE PROCEDURE seed_campus_desk()
 seed_main: BEGIN
-  DECLARE v_hash VARCHAR(180) DEFAULT 'fd4c2e88e5e29cd1f6cacaefbc5af6d1.a2c20c840bf7c845517129bd00a51ab365d4daf5dea0f41509d36c232d04c32bfbedfc61a21b9e9feb06202162306bb9e5942d6257c1b094c29fe3d757fbc890';
+  DECLARE v_hash VARCHAR(180) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'fd4c2e88e5e29cd1f6cacaefbc5af6d1.a2c20c840bf7c845517129bd00a51ab365d4daf5dea0f41509d36c232d04c32bfbedfc61a21b9e9feb06202162306bb9e5942d6257c1b094c29fe3d757fbc890';
   DECLARE v_admin INT;
   DECLARE v_student INT;
   DECLARE v_teacher INT;
@@ -42,16 +42,53 @@ seed_main: BEGIN
   DECLARE v_j INT DEFAULT 0;
   DECLARE v_n INT DEFAULT 0;
   DECLARE v_year_num INT;
-  DECLARE v_subject VARCHAR(80);
-  DECLARE v_first VARCHAR(30);
-  DECLARE v_surname VARCHAR(30);
-  DECLARE v_code VARCHAR(8);
-  DECLARE v_batch VARCHAR(4);
-  DECLARE v_weekday VARCHAR(12);
+  DECLARE v_subject VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  DECLARE v_first VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  DECLARE v_surname VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  DECLARE v_code VARCHAR(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  DECLARE v_batch VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  DECLARE v_weekday VARCHAR(12) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
   DECLARE v_start TIME;
   DECLARE v_end TIME;
 
   SET v_hash=COALESCE(@campus_demo_password_hash,v_hash);
+
+  -- Additive portal release data is deliberately applied before the legacy
+  -- seed guard so an already-seeded development database receives new fixtures.
+  INSERT IGNORE INTO role_permissions(role_name,permission_name) VALUES
+    ('ADMIN','exam_schedule'),('ADMIN','exam_state'),('ADMIN','attendance_review'),
+    ('TEACHER','attendance_review'),('ADMIN','document_review'),
+    ('STUDENT','grade_review_request'),('ADMIN','grade_review'),('TEACHER','grade_review'),
+    ('STUDENT','attendance_request'),('STUDENT','document_request'),
+    ('STUDENT','support_ticket'),('ADMIN','ticket_reply'),('STUDENT','ticket_reply'),
+    ('ADMIN','ticket_status'),('STUDENT','reserve_book'),('STUDENT','cancel_reservation'),
+    ('ADMIN','reservation_review'),('LIBRARIAN','reservation_review'),
+    ('STUDENT','renewal_request'),('ADMIN','renewal_review'),('LIBRARIAN','renewal_review'),
+    ('ADMIN','career_opportunity'),('STUDENT','career_apply'),('ADMIN','career_review'),
+    ('ADMIN','notification_preferences'),('STUDENT','notification_preferences'),
+    ('TEACHER','notification_preferences'),('ADVISOR','notification_preferences'),
+    ('ACCOUNTS_OFFICER','notification_preferences'),('LIBRARIAN','notification_preferences'),
+    ('THESIS_SUPERVISOR','notification_preferences');
+  INSERT IGNORE INTO student_profiles(student) SELECT user_id FROM students;
+  INSERT IGNORE INTO notification_preferences(user_id) SELECT id FROM users;
+  INSERT INTO career_opportunities(title,organization,opportunity_type,description,location,deadline,status,created_by)
+    SELECT 'Campus software engineering internship','Campus Innovation Lab','Internship',
+      'A fictional supervised internship for students interested in building university services.','Dhaka',DATE_ADD(CURRENT_DATE,INTERVAL 60 DAY),'Published',u.id
+    FROM users u WHERE u.email='admin@campus.test'
+      AND NOT EXISTS(SELECT 1 FROM career_opportunities WHERE title='Campus software engineering internship' AND organization='Campus Innovation Lab');
+  INSERT IGNORE INTO exam_schedules(offering,title,exam_type,exam_date,starts_at,ends_at,room,state,created_by)
+    SELECT o.id,'Algorithms final examination','Final',DATE_ADD(s.ends_on,INTERVAL 2 DAY),'09:00:00','12:00:00',rm.id,'Published',admin.id
+    FROM offerings o JOIN courses c ON c.id=o.course JOIN semesters s ON s.id=o.term
+    JOIN rooms rm ON rm.name='Lecture Hall A' JOIN users admin ON admin.email='admin@campus.test'
+    WHERE c.code='CSE201' AND s.code='LAB-2';
+  INSERT INTO student_document_requests(student,document_type,purpose)
+    SELECT u.id,'Enrollment certificate','Demo request for the current semester.' FROM users u
+    WHERE u.email='student@campus.test' AND NOT EXISTS(
+      SELECT 1 FROM student_document_requests r WHERE r.student=u.id AND r.document_type='Enrollment certificate' AND r.purpose='Demo request for the current semester.');
+  INSERT INTO support_tickets(student,category,subject,description)
+    SELECT u.id,'Technical','Demo portal support request','Use this fictional ticket to review the student support workflow.' FROM users u
+    WHERE u.email='student@campus.test' AND NOT EXISTS(
+      SELECT 1 FROM support_tickets t WHERE t.student=u.id AND t.subject='Demo portal support request');
 
   IF EXISTS (SELECT 1 FROM audit_logs WHERE action='SEED_THIRTY_V1') THEN
     LEAVE seed_main;
@@ -447,6 +484,26 @@ seed_main: BEGIN
     FROM attendance a JOIN registrations r ON r.id=a.reg;
   INSERT IGNORE INTO receipt_details(receipt,state,method)
     SELECT id,'Valid','Recorded' FROM receipts;
+  INSERT IGNORE INTO student_profiles(student) SELECT user_id FROM students;
+  INSERT IGNORE INTO notification_preferences(user_id) SELECT id FROM users;
+  INSERT INTO career_opportunities(title,organization,opportunity_type,description,location,deadline,status,created_by)
+    SELECT 'Campus software engineering internship','Campus Innovation Lab','Internship',
+      'A fictional supervised internship for students interested in building university services.','Dhaka',DATE_ADD(CURRENT_DATE,INTERVAL 60 DAY),'Published',u.id
+    FROM users u WHERE u.email='admin@campus.test'
+      AND NOT EXISTS(SELECT 1 FROM career_opportunities WHERE title='Campus software engineering internship' AND organization='Campus Innovation Lab');
+  INSERT IGNORE INTO exam_schedules(offering,title,exam_type,exam_date,starts_at,ends_at,room,state,created_by)
+    SELECT o.id,'Algorithms final examination','Final',DATE_ADD(s.ends_on,INTERVAL 2 DAY),'09:00:00','12:00:00',rm.id,'Published',admin.id
+    FROM offerings o JOIN courses c ON c.id=o.course JOIN semesters s ON s.id=o.term
+    JOIN rooms rm ON rm.name='Lecture Hall A' JOIN users admin ON admin.email='admin@campus.test'
+    WHERE c.code='CSE201' AND s.code='LAB-2';
+  INSERT INTO student_document_requests(student,document_type,purpose)
+    SELECT u.id,'Enrollment certificate','Demo request for the current semester.' FROM users u
+    WHERE u.email='student@campus.test' AND NOT EXISTS(
+      SELECT 1 FROM student_document_requests r WHERE r.student=u.id AND r.document_type='Enrollment certificate' AND r.purpose='Demo request for the current semester.');
+  INSERT INTO support_tickets(student,category,subject,description)
+    SELECT u.id,'Technical','Demo portal support request','Use this fictional ticket to review the student support workflow.' FROM users u
+    WHERE u.email='student@campus.test' AND NOT EXISTS(
+      SELECT 1 FROM support_tickets t WHERE t.student=u.id AND t.subject='Demo portal support request');
   INSERT IGNORE INTO invoice_items(invoice,label,amount)
     SELECT i.id,i.label,i.amount FROM invoices i
     WHERE NOT EXISTS (SELECT 1 FROM invoice_items x WHERE x.invoice=i.id);

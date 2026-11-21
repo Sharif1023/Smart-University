@@ -1,5 +1,5 @@
 import { addTables } from "./blueprint.js";
-const phase4 = () => process.env.ENABLE_PHASE4 === "true";
+const phase4 = () => process.env.ENABLE_PHASE4 !== "false";
 import { Router } from "express";
 import { pool, transaction } from "../db.js";
 import { fail } from "../security.js";
@@ -45,6 +45,7 @@ async function insights(db, u, d) {
       summaries.push({
         student: s.name,
         cgpa: p.cgpa,
+        attempted: p.attempted,
         earned: p.earned,
         remaining: Math.max(0, s.required_credits - p.earned),
         advisor: s.advisor_name,
@@ -132,6 +133,13 @@ function view(u, d, i, list) {
   }));
   const routine = d.routine.map((r) => ({
     ...r,
+    semester: d.offerings.find((o) => o.id === r.offering)?.semester,
+    current_term: (() => {
+      const offering = d.offerings.find((o) => o.id === r.offering);
+      return offering && offering.starts_on <= today() && offering.ends_on >= today()
+        ? "Current"
+        : "Other";
+    })(),
     time: slots[r.slot - 1].label,
     status: r.published
       ? "Published"
@@ -240,7 +248,7 @@ function view(u, d, i, list) {
     "Routine",
     table(
       "Weekly timetable",
-      "code section instructor room_name time status",
+      "code semester current_term section instructor room_name time status",
       routine,
     ),
     ...(admin
@@ -276,7 +284,7 @@ function view(u, d, i, list) {
       ? [
           table(
             "Academic standing",
-            "student cgpa earned remaining advisor",
+            "student cgpa attempted earned remaining advisor",
             i.summaries,
           ),
           table("GPA by semester", "student semester gpa", i.terms),
@@ -367,9 +375,17 @@ function view(u, d, i, list) {
       groups[s.section].forms.push({
         key,
         title: s.title,
-        fields: s.fields.map((f) => ({ ...f, choices: lists[f.type] })),
+        fields: s.fields.map((f) => ({
+          ...f,
+          choices: lists[f.type],
+          defaultValue:
+            key === "notification_preferences" &&
+            ["academic", "finance", "library", "thesis", "notices"].includes(f.key)
+              ? (d.extra.preferences[f.key] ? "On" : "Off")
+              : undefined,
+        })),
       });
-  return { groups, metrics, settings: d.extra.settings, phase4: phase4() };
+  return { groups, metrics, settings: d.extra.settings, phase4: phase4(), role: u.role };
 }
 export const operations = Router();
 operations.get("/", async (req, res) => {
@@ -508,7 +524,15 @@ operations.post("/ask", async (req, res) => {
   const lines = (items, fn) =>
     items.slice(0, 15).map(fn).join("\n") || "No matching records yet.";
   let answer;
-  if (/attendance|উপস্থিতি/.test(q)) {
+  if (/next exam|upcoming exam|exam|পরীক্ষা/.test(q)) {
+    const exams = d.extra.examSchedules.filter(
+      (x) => x.state === "Published" && x.exam_date >= today(),
+    );
+    answer = lines(
+      /next exam|পরবর্তী পরীক্ষা/.test(q) ? exams.slice(0, 1) : exams,
+      (x) => x.exam_date + " · " + x.code + " · " + x.title + " · " + x.starts_at + "–" + x.ends_at + " · " + x.room_name,
+    );
+  } else if (/attendance|উপস্থিতি/.test(q)) {
     const code = q.toUpperCase().replace(/\s/g, "");
     const match = d.regs.filter((r) =>
       code.includes(r.code.toUpperCase().replace(/\s/g, "")),
@@ -589,6 +613,16 @@ operations.post("/ask", async (req, res) => {
     );
   else if (/notice|announcement/.test(q))
     answer = lines(d.notices, (n) => n.title + " — " + n.body);
+  else if (/overdue|late book|বিলম্বিত/.test(q))
+    answer = lines(
+      d.loans.filter((l) => !l.returned && l.due < today()),
+      (l) => l.title + " · due " + l.due,
+    );
+  else if (/assignment|assessment|deadline/.test(q))
+    answer = lines(
+      d.extra.assessments.filter((a) => a.due >= today()),
+      (a) => a.code + " · " + a.title + " · due " + a.due,
+    );
   else if (/book|library/.test(q))
     answer = lines(
       d.books,

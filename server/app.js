@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { pool, transaction } from "./db.js";
 import { digest, fail, hashPassword, verifyPassword } from "./security.js";
 import { catalogRouter } from "./catalog.js";
+import { isIsoDate, isSupportedProfileImage } from "./validation.js";
 const sessionCookie = "campus_session";
 const cookieOptions = {
   httpOnly: true,
@@ -152,11 +153,81 @@ api.post("/auth/password", async (req, res) => {
     .json({ data: { signedOut: true } });
 });
 api.get("/profile", async (req, res) => {
-  const [[student]] = await pool.execute(
-    "SELECT s.student_no,s.batch,s.status,p.name AS program,d.name AS department FROM students s JOIN programs p ON p.id=s.program_id JOIN departments d ON d.id=p.department_id WHERE s.user_id=?",
+  const [[student]] = req.user.role === "STUDENT"
+    ? await pool.execute(
+        "SELECT s.student_no,s.batch,s.status,p.name AS program,d.name AS department,term.name AS admission_session,advisor.advisor,staff.name AS advisor_name,sp.date_of_birth,sp.phone,sp.present_address,sp.permanent_address,sp.guardian_name,sp.guardian_phone,sp.emergency_name,sp.emergency_phone,(sp.photo_data IS NOT NULL) has_photo FROM students s JOIN programs p ON p.id=s.program_id JOIN departments d ON d.id=p.department_id LEFT JOIN student_details sd ON sd.student=s.user_id LEFT JOIN semesters term ON term.id=sd.admission LEFT JOIN advising advisor ON advisor.student=s.user_id LEFT JOIN users staff ON staff.id=advisor.advisor LEFT JOIN student_profiles sp ON sp.student=s.user_id WHERE s.user_id=?",
+        [req.user.id],
+      )
+    : [[]];
+  res.json({ data: { ...req.user, ...(student ?? {}) } });
+});
+api.get("/profile/photo", async (req, res) => {
+  if (req.user.role !== "STUDENT")
+    fail(404, "NOT_FOUND", "Profile photo unavailable.");
+  const [[photo]] = await pool.execute(
+    "SELECT photo_mime,photo_data FROM student_profiles WHERE student=? AND photo_data IS NOT NULL",
     [req.user.id],
   );
-  res.json({ data: { ...req.user, ...student } });
+  if (!photo) fail(404, "NOT_FOUND", "No profile photo has been uploaded.");
+  res.setHeader("Cache-Control", "private, no-store");
+  res.type(photo.photo_mime).send(photo.photo_data);
+});
+api.put("/profile", async (req, res) => {
+  if (req.user.role !== "STUDENT")
+    fail(403, "FORBIDDEN", "Only students can edit these profile fields.");
+  const body = req.body ?? {},
+    field = (key, limit) => {
+      const value = body[key];
+      if (typeof value !== "string")
+        fail(422, "INVALID_INPUT", "Check your contact and address fields.");
+      const text = value.trim();
+      if (text.length > limit)
+        fail(422, "INVALID_INPUT", key.replaceAll("_", " ") + " is too long.");
+      return text || null;
+    },
+    date = body.date_of_birth == null || body.date_of_birth === ""
+      ? null
+      : String(body.date_of_birth);
+  if (date && (!isIsoDate(date) || date > new Date(Date.now() + 6 * 3600000).toISOString().slice(0, 10)))
+    fail(422, "INVALID_INPUT", "Enter a valid date of birth.");
+  const values = {
+    phone: field("phone", 32),
+    present_address: field("present_address", 250),
+    permanent_address: field("permanent_address", 250),
+    guardian_name: field("guardian_name", 100),
+    guardian_phone: field("guardian_phone", 32),
+    emergency_name: field("emergency_name", 100),
+    emergency_phone: field("emergency_phone", 32),
+  };
+  for (const key of ["phone", "guardian_phone", "emergency_phone"])
+    if (values[key] && !/^[+\d() .-]{7,32}$/.test(values[key]))
+      fail(422, "INVALID_INPUT", "Enter a valid phone number.");
+  const upload = body.photo;
+  let photoBytes = null;
+  if (upload !== undefined) {
+    if (!upload || typeof upload.data !== "string" || upload.data.length > 1400000 || !/^[A-Za-z0-9+/]+=*$/.test(upload.data))
+      fail(422, "INVALID_INPUT", "Choose a supported image up to 1 MiB.");
+    photoBytes = Buffer.from(upload.data, "base64");
+    const mime = upload.mime,
+      valid = isSupportedProfileImage(mime, photoBytes);
+    if (!valid) fail(422, "INVALID_INPUT", "Use a valid JPG, PNG or WebP image up to 1 MiB.");
+  }
+  if (body.remove_photo !== undefined && typeof body.remove_photo !== "boolean")
+    fail(422, "INVALID_INPUT", "Invalid photo update.");
+  await transaction(async (db) => {
+    const [[exists]] = await db.execute("SELECT user_id FROM students WHERE user_id=? FOR UPDATE", [req.user.id]);
+    if (!exists) fail(404, "NOT_FOUND", "Student profile unavailable.");
+    await db.execute(
+      "INSERT INTO student_profiles(student,date_of_birth,phone,present_address,permanent_address,guardian_name,guardian_phone,emergency_name,emergency_phone) VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE date_of_birth=VALUES(date_of_birth),phone=VALUES(phone),present_address=VALUES(present_address),permanent_address=VALUES(permanent_address),guardian_name=VALUES(guardian_name),guardian_phone=VALUES(guardian_phone),emergency_name=VALUES(emergency_name),emergency_phone=VALUES(emergency_phone)",
+      [req.user.id, date, values.phone, values.present_address, values.permanent_address, values.guardian_name, values.guardian_phone, values.emergency_name, values.emergency_phone],
+    );
+    if (photoBytes)
+      await db.execute("UPDATE student_profiles SET photo_mime=?,photo_data=? WHERE student=?", [upload.mime, photoBytes, req.user.id]);
+    else if (body.remove_photo)
+      await db.execute("UPDATE student_profiles SET photo_mime=NULL,photo_data=NULL WHERE student=?", [req.user.id]);
+    await db.execute("INSERT INTO audit_logs(actor_id,action,resource,record_id) VALUES(?,'STUDENT_PROFILE_UPDATE','student_profiles',?)", [req.user.id, req.user.id]);
+  });
+  res.json({ data: { updated: true } });
 });
 api.get("/overview", async (req, res) => {
   const [[term]] = await pool.query(

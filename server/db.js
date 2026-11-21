@@ -5,7 +5,7 @@ const client = mysql.createPool({
   port: Number(process.env.DB_PORT || 3306),
   database: process.env.DB_NAME || "smart_university",
   user: process.env.DB_USER || "campus",
-  password: process.env.DB_PASSWORD || "local-campus-dev",
+  password: process.env.DB_PASSWORD ?? "local-campus-dev",
   waitForConnections: true,
   connectionLimit: 8,
   queueLimit: 0,

@@ -2,6 +2,7 @@ import { runExtra, publishGrade, validPublication } from "./blueprint.js";
 import { fail, hashPassword } from "../security.js";
 import { slots, rows, today, eligible } from "./records.js";
 import { actions, options } from "./forms.js";
+import { isIsoDate, isLocalTime } from "../validation.js";
 export const reject = (msg) => fail(422, "INVALID_INPUT", msg);
 export async function mutate(
   db,
@@ -25,7 +26,17 @@ export async function mutate(
     let value = body?.[f];
     if (type === "optional") {
       value = String(value ?? "").trim();
-      if (value.length > 140) reject("Text too long.");
+      const max = f === "application_url" ? 1200 : f === "cover_note" ? 1000 : 500;
+      if (value.length > max) reject("Text too long.");
+      if (f === "application_url" && value) {
+        let link;
+        try {
+          link = new URL(value);
+        } catch {
+          reject("Enter a valid HTTPS application link.");
+        }
+        if (link.protocol !== "https:") reject("Enter a valid HTTPS application link.");
+      }
     } else if (Object.hasOwn(lists, type)) {
       const item = lists[type].find((o) => String(o.id) === String(value));
       if (!item) reject("Choose an available " + f.replaceAll("_", " ") + ".");
@@ -88,11 +99,11 @@ export async function mutate(
         reject(f + " is too long.");
       if (
         type === "date" &&
-        (!/^\d{4}-\d\d-\d\d$/.test(value) ||
-          !Number.isFinite(Date.parse(value)) ||
-          new Date(value).toISOString().slice(0, 10) !== value)
+        !isIsoDate(value)
       )
         reject("Invalid date.");
+      if (type === "time" && !isLocalTime(value))
+        reject("Enter a valid time.");
       if (type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
         reject("Enter a valid email.");
       if (type === "password" && value.length < 12)
@@ -103,6 +114,12 @@ export async function mutate(
   const run = (sql, ...a) => db.execute(sql, a);
   const reg = d.regs.find((r) => r.id === b.reg);
   const execute = async (sql, ...a) => (await run(sql, ...a))[0];
+  const notify = async (recipient, message, category = "academic") => {
+    const column = { academic: "academic", finance: "finance", library: "library", thesis: "thesis", notices: "notices" }[category] ?? "academic";
+    const [preference] = await execute(`SELECT ${column} enabled FROM notification_preferences WHERE user_id=?`, recipient);
+    if (preference?.enabled !== 0)
+      await execute("INSERT INTO notifications(recipient,message) VALUES(?,?)", recipient, message);
+  };
   let entity =
     b.reg ??
     b.thesis ??
@@ -112,7 +129,15 @@ export async function mutate(
     b.account ??
     b.notice ??
     b.offering ??
+    b.schedule ??
+    b.correction ??
+    b.request ??
+    b.document_request ??
+    b.ticket ??
+    b.reservation ??
     b.loan ??
+    b.renewal ??
+    b.application ??
     u.id;
   if (key === "register" || (key === "review" && b.status === "Approved")) {
     const section = d.offerings.find(
@@ -711,14 +736,14 @@ export async function mutate(
     d.bills.find((i) => i.id === b.invoice)?.student ??
     b.student;
   if (recipient && recipient !== u.id)
-    await execute(
-      "INSERT INTO notifications(recipient,message) VALUES(?,?)",
+    await notify(
       recipient,
       spec.title +
         " · " +
         (b.status ?? b.note ?? b.label ?? "record updated")
           .toString()
           .slice(0, 130),
+      { Finance: "finance", Library: "library", Thesis: "thesis", Notices: "notices" }[spec.section] ?? "academic",
     );
   if (key === "register") {
     const [a] = await execute(
@@ -726,10 +751,7 @@ export async function mutate(
       u.id,
     );
     if (a)
-      await execute(
-        "INSERT INTO notifications(recipient,message) VALUES(?,'Registration request awaits your review')",
-        a.advisor,
-      );
+      await notify(a.advisor, "Registration request awaits your review");
   }
   const audit = await execute(
     "INSERT INTO audit_logs(actor_id,action,resource,record_id) VALUES(?,?,?,?)",
@@ -747,7 +769,18 @@ export async function mutate(
       Object.fromEntries(
         Object.entries(b).filter(
           ([k]) =>
-            !["password", "document", "proposal", "body", "note"].includes(k),
+            ![
+              "password",
+              "document",
+              "proposal",
+              "body",
+              "note",
+              "description",
+              "message",
+              "purpose",
+              "cover_note",
+              "photo",
+            ].includes(k),
         ),
       ),
     ),

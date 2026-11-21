@@ -505,3 +505,126 @@ test("notice publication dates, private attachments and archived states", () =>
     });
     assert.ok(!(await state("STUDENT")).notices.some((x) => x.id === n.id));
   }));
+
+test("student support tickets are private and keep replies on the same ticket", () =>
+  fixture(async ({ db, get, u, state, apply }) => {
+    await apply("STUDENT", "support_ticket", {
+      category: "Technical",
+      subject: "Portal help test",
+      description: "Please help with the student portal.",
+    });
+    const [ticket] = await get(
+      "SELECT id FROM support_tickets WHERE student=? AND subject='Portal help test'",
+      u.STUDENT.id,
+    );
+    await apply("STUDENT", "ticket_reply", {
+      ticket: ticket.id,
+      message: "I can provide more details.",
+    });
+    assert.equal(
+      (await get("SELECT COUNT(*) total FROM support_replies WHERE ticket=?", ticket.id)).total,
+      1,
+    );
+    const other = await get(
+      "SELECT s.user_id id,u.role FROM students s JOIN users u ON u.id=s.user_id WHERE s.user_id<>? ORDER BY s.user_id LIMIT 1",
+      u.STUDENT.id,
+    );
+    const otherState = await records(db, other);
+    assert.ok(!otherState.extra.tickets.some((x) => x.id === ticket.id));
+    await assert.rejects(
+      mutate(
+        db,
+        other,
+        otherState,
+        [],
+        "ticket_reply",
+        { ticket: ticket.id, message: "Try to read another ticket." },
+        "test-request",
+      ),
+    );
+  }));
+
+test("students request attendance corrections and assigned teachers approve them", () =>
+  fixture(async ({ db, get, u, state, apply }) => {
+    const studentData = await state("STUDENT"),
+      session = studentData.extra.sessions.find((x) => x.status === "Held" && x.day <= today()),
+      reg = studentData.regs.find((x) => x.offering === session?.offering && x.status === "Approved");
+    assert.ok(session && reg, "the seeded student needs a held class session");
+    const current = studentData.attendance.find((x) => x.reg === reg.id && x.day === session.day),
+      requested_status = current?.mark_status === "Present" ? "Absent" : "Present";
+    await apply("STUDENT", "attendance_request", {
+      session: `${reg.id}|${session.day}`,
+      requested_status,
+      reason: "Attendance entry needs a review.",
+    });
+    const [request] = await get(
+      "SELECT id FROM attendance_correction_requests WHERE reg=? AND day=? AND student=?",
+      reg.id,
+      session.day,
+      u.STUDENT.id,
+    );
+    await apply("TEACHER", "attendance_review", {
+      correction: request.id,
+      decision: "Approved",
+      review_reason: "Confirmed against the class record.",
+    });
+    const [official] = await get(
+      "SELECT status FROM attendance_status WHERE reg=? AND day=?",
+      reg.id,
+      session.day,
+    );
+    assert.equal(official.status, requested_status);
+  }));
+
+test("career applications retain their student scope and can be reviewed", () =>
+  fixture(async ({ get, state, apply }) => {
+    const opportunity = (await state("STUDENT")).extra.opportunities[0];
+    assert.ok(opportunity, "the development seed should include an opportunity");
+    await apply("STUDENT", "career_apply", {
+      opportunity: opportunity.id,
+      cover_note: "Fictional test application.",
+    });
+    const [application] = await get(
+      "SELECT id FROM career_applications WHERE opportunity=? AND student=(SELECT id FROM users WHERE email='student@campus.test')",
+      opportunity.id,
+    );
+    await apply("ADMIN", "career_review", {
+      application: application.id,
+      state: "Under review",
+    });
+    const [reviewed] = await get(
+      "SELECT status FROM career_applications WHERE id=?",
+      application.id,
+    );
+    assert.equal(reviewed.status, "Under review");
+  }));
+
+test("grade reviews are scoped to a student's published result and do not edit grades", () =>
+  fixture(async ({ get, u, state, apply }) => {
+    const result = (await state("STUDENT")).regs.find((r) => r.published);
+    assert.ok(result, "the seeded student needs one published result");
+    const [before] = await get("SELECT assessment,exam,published FROM results WHERE reg=?", result.id);
+    await apply("STUDENT", "grade_review_request", {
+      reg: result.id,
+      reason: "Please check the recorded exam score.",
+    });
+    const [request] = await get(
+      "SELECT id FROM grade_review_requests WHERE reg=? AND student=?",
+      result.id,
+      u.STUDENT.id,
+    );
+    await apply("TEACHER", "grade_review", {
+      request: request.id,
+      state: "Under review",
+      response: "The teaching team is checking the assessment record.",
+    });
+    await apply("TEACHER", "grade_review", {
+      request: request.id,
+      state: "Resolved",
+      response: "The published result was verified.",
+    });
+    const [after] = await get("SELECT assessment,exam,published FROM results WHERE reg=?", result.id);
+    assert.deepEqual(after, before);
+    const [status] = await get("SELECT status FROM grade_review_requests WHERE id=?", request.id);
+    assert.equal(status.status, "Resolved");
+  }));

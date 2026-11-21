@@ -58,7 +58,9 @@ export async function records(db, user) {
         "SELECT u.id,u.name,u.email,u.role,u.active,(SELECT employee_no FROM faculty_details fd WHERE fd.teacher=u.id) employee_no,f.designation,f.department_id FROM users u LEFT JOIN faculty f ON f.user_id=u.id WHERE u.role<>'STUDENT'",
       )
     : await read(
-        "SELECT u.id,u.name,u.role,f.designation,f.department_id FROM users u LEFT JOIN faculty f ON f.user_id=u.id WHERE u.id=?",
+        student
+          ? "SELECT u.id,u.name,u.role,f.designation,f.department_id FROM advising a JOIN users u ON u.id=a.advisor LEFT JOIN faculty f ON f.user_id=u.id WHERE a.student=?"
+          : "SELECT u.id,u.name,u.role,f.designation,f.department_id FROM users u LEFT JOIN faculty f ON f.user_id=u.id WHERE u.id=?",
         [id],
       );
   const offerings = await read(
@@ -284,6 +286,7 @@ export function performance(records, training) {
     });
   return {
     cgpa,
+    attempted: credits,
     earned: [...passed.values()].reduce((a, b) => a + b, 0),
     forecasts,
   };

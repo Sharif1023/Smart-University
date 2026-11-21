@@ -469,6 +469,192 @@ CREATE TABLE IF NOT EXISTS thesis_events(id INT NOT NULL AUTO_INCREMENT PRIMARY 
 
 CREATE TABLE IF NOT EXISTS routine_conflicts(id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,term INT NOT NULL,actor INT NOT NULL,reason VARCHAR(250) NOT NULL,created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(term) REFERENCES semesters(id),FOREIGN KEY(actor) REFERENCES users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Student self-service records extend the existing student identity; they do not duplicate it.
+CREATE TABLE IF NOT EXISTS student_profiles (
+ student INT PRIMARY KEY,
+ date_of_birth DATE,
+ phone VARCHAR(32),
+ present_address VARCHAR(250),
+ permanent_address VARCHAR(250),
+ guardian_name VARCHAR(100),
+ guardian_phone VARCHAR(32),
+ emergency_name VARCHAR(100),
+ emergency_phone VARCHAR(32),
+ photo_mime VARCHAR(32),
+ photo_data MEDIUMBLOB,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(student) REFERENCES students(user_id) ON DELETE CASCADE,
+ CHECK ((photo_mime IS NULL AND photo_data IS NULL) OR (photo_mime IS NOT NULL AND photo_data IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS exam_schedules (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ offering INT NOT NULL,
+ title VARCHAR(140) NOT NULL,
+ exam_type VARCHAR(30) NOT NULL,
+ exam_date DATE NOT NULL,
+ starts_at TIME NOT NULL,
+ ends_at TIME NOT NULL,
+ room INT NOT NULL,
+ state VARCHAR(16) NOT NULL DEFAULT 'Draft' CHECK (state IN ('Draft','Published','Cancelled')),
+ created_by INT NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(offering) REFERENCES offerings(id),
+ FOREIGN KEY(room) REFERENCES rooms(id),
+ FOREIGN KEY(created_by) REFERENCES users(id),
+ UNIQUE(offering,exam_type),
+ CHECK (ends_at > starts_at),
+ INDEX exam_schedules_date_state_idx (exam_date,state)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS attendance_correction_requests (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ reg INT NOT NULL,
+ student INT NOT NULL,
+ day DATE NOT NULL,
+ requested_status VARCHAR(16) NOT NULL CHECK (requested_status IN ('Present','Absent','Late','Excused')),
+ reason VARCHAR(500) NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Approved','Rejected')),
+ reviewer INT,
+ review_reason VARCHAR(500),
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(reg) REFERENCES registrations(id),
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(reviewer) REFERENCES users(id),
+ INDEX attendance_correction_scope_idx (student,status,day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS grade_review_requests (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ reg INT NOT NULL,
+ student INT NOT NULL,
+ reason VARCHAR(1000) NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Under review','Resolved','Rejected')),
+ response VARCHAR(500),
+ reviewer INT,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(reg) REFERENCES registrations(id),
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(reviewer) REFERENCES users(id),
+ INDEX grade_review_student_idx (student,status,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS student_document_requests (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ student INT NOT NULL,
+ document_type VARCHAR(40) NOT NULL,
+ purpose VARCHAR(1000) NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Approved','Rejected','Ready')),
+ response VARCHAR(500),
+ reviewer INT,
+ requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(reviewer) REFERENCES users(id),
+ INDEX student_document_status_idx (student,status,requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS support_tickets (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ student INT NOT NULL,
+ category VARCHAR(40) NOT NULL,
+ subject VARCHAR(140) NOT NULL,
+ description TEXT NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','In progress','Resolved','Closed')),
+ assigned_to INT,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(assigned_to) REFERENCES users(id),
+ INDEX support_ticket_scope_idx (student,status,updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS support_replies (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ ticket INT NOT NULL,
+ author INT NOT NULL,
+ message TEXT NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(ticket) REFERENCES support_tickets(id) ON DELETE CASCADE,
+ FOREIGN KEY(author) REFERENCES users(id),
+ INDEX support_reply_ticket_idx (ticket,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS library_reservations (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ book INT NOT NULL,
+ student INT NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Ready','Rejected','Cancelled','Fulfilled')),
+ reviewed_by INT,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(book) REFERENCES books(id),
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(reviewed_by) REFERENCES users(id),
+ INDEX library_reservation_scope_idx (student,status,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS loan_renewal_requests (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ loan INT NOT NULL,
+ student INT NOT NULL,
+ requested_due DATE NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Approved','Rejected')),
+ reviewed_by INT,
+ review_reason VARCHAR(500),
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(loan) REFERENCES loans(id),
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ FOREIGN KEY(reviewed_by) REFERENCES users(id),
+ INDEX loan_renewal_scope_idx (student,status,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+ user_id INT PRIMARY KEY,
+ academic SMALLINT NOT NULL DEFAULT 1 CHECK (academic IN (0,1)),
+ finance SMALLINT NOT NULL DEFAULT 1 CHECK (finance IN (0,1)),
+ library SMALLINT NOT NULL DEFAULT 1 CHECK (library IN (0,1)),
+ thesis SMALLINT NOT NULL DEFAULT 1 CHECK (thesis IN (0,1)),
+ notices SMALLINT NOT NULL DEFAULT 1 CHECK (notices IN (0,1)),
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS career_opportunities (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ title VARCHAR(140) NOT NULL,
+ organization VARCHAR(140) NOT NULL,
+ opportunity_type VARCHAR(30) NOT NULL,
+ description TEXT NOT NULL,
+ location VARCHAR(120),
+ deadline DATE,
+ application_url VARCHAR(1200),
+ status VARCHAR(16) NOT NULL DEFAULT 'Published' CHECK (status IN ('Draft','Published','Archived')),
+ created_by INT NOT NULL,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(created_by) REFERENCES users(id),
+ UNIQUE(title,organization),
+ INDEX career_opportunity_status_idx (status,deadline)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS career_applications (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ opportunity INT NOT NULL,
+ student INT NOT NULL,
+ cover_note VARCHAR(1000),
+ status VARCHAR(20) NOT NULL DEFAULT 'Submitted' CHECK (status IN ('Submitted','Under review','Shortlisted','Rejected','Withdrawn')),
+ submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(opportunity) REFERENCES career_opportunities(id),
+ FOREIGN KEY(student) REFERENCES students(user_id),
+ UNIQUE(opportunity,student),
+ INDEX career_application_student_idx (student,submitted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE OR REPLACE VIEW course_offerings AS SELECT course,term,COUNT(*) section_count FROM offerings GROUP BY course,term;
 
 CREATE OR REPLACE VIEW academic_sections AS SELECT o.*,COALESCE(d.status,'Active') availability FROM offerings o LEFT JOIN section_details d ON d.offering=o.id;

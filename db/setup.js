@@ -1,29 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { pool } from "../server/db.js";
 import { hashPassword } from "../server/security.js";
+import { parseSqlStatements } from "./sql-statements.js";
 
 async function runSqlFile(connection, url) {
   const source = await readFile(url, "utf8");
-  let delimiter = ";";
-  let pending = "";
-
-  for (const line of source.split(/\r?\n/)) {
-    const command = /^\s*DELIMITER\s+(\S+)\s*$/i.exec(line);
-    if (command) {
-      delimiter = command[1];
-      continue;
-    }
-    pending += line + "\n";
-
-    let boundary;
-    while ((boundary = pending.indexOf(delimiter)) >= 0) {
-      const statement = pending.slice(0, boundary).trim();
-      pending = pending.slice(boundary + delimiter.length);
-      if (statement) await connection.query(statement);
+  for (const [index, statement] of parseSqlStatements(source).entries()) {
+    try {
+      await connection.query(statement);
+    } catch (error) {
+      error.scriptFile = url.pathname.split("/").at(-1);
+      error.statementNumber = index + 1;
+      throw error;
     }
   }
-
-  if (pending.trim()) await connection.query(pending.trim());
 }
 
 const schemaOnly = process.argv.includes("--schema-only");
@@ -35,8 +25,9 @@ if (!schemaOnly && demoPassword) {
     throw Error("DEMO_PASSWORD must be 12–256 characters before seeding.");
   demoPasswordHash = await hashPassword(demoPassword);
 }
-const connection = await pool.getConnection();
+let connection;
 try {
+  connection = await pool.getConnection();
   if (!seedOnly) {
     console.log("Applying db/schema.sql …");
     await runSqlFile(connection, new URL("./schema.sql", import.meta.url));
@@ -57,10 +48,19 @@ try {
         : "MySQL schema and demo seed are ready.",
   );
 } catch (error) {
-  await connection.rollback().catch(() => {});
-  console.error(error.message);
+  if (connection) await connection.rollback().catch(() => {});
+  const message =
+    error.code === "ER_ACCESS_DENIED_ERROR"
+      ? "MySQL rejected DB_USER/DB_PASSWORD. Check those values in .env; keep DB_PASSWORD= if your local account has no password."
+      : error.code === "ECONNREFUSED"
+        ? "Cannot connect to MySQL. Start its Windows service and check DB_HOST/DB_PORT in .env."
+        : error.message;
+  const location = error.scriptFile
+    ? ` (${error.scriptFile}, statement ${error.statementNumber})`
+    : "";
+  console.error("Database setup failed" + location + ":", message);
   process.exitCode = 1;
 } finally {
-  connection.release();
+  connection?.release();
   await pool.end();
 }

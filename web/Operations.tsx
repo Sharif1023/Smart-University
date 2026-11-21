@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, useLoad, Status } from "./shared";
 type Opt = { id: string | number; label: string };
-type Field = { key: string; type: string; choices?: Opt[] };
+type Field = { key: string; type: string; choices?: Opt[]; defaultValue?: string };
 type Action = { key: string; title: string; fields: Field[] };
 type Grid = {
   title: string;
@@ -11,6 +11,7 @@ type Grid = {
 type Group = { tables: Grid[]; forms: Action[] };
 type Workspace = {
   phase4: boolean;
+  role: string;
   settings: {
     timezone_name: string;
     date_locale: string;
@@ -19,11 +20,44 @@ type Workspace = {
   groups: Record<string, Group>;
   metrics: { label: string; value: string | number }[];
 };
+function WhatIfGpa({ current, attempted }: { current: number | null; attempted: number }) {
+  const [credits, setCredits] = useState("3"),
+    [grade, setGrade] = useState("3.5"),
+    nextCredits = Number(credits),
+    nextGrade = Number(grade),
+    estimate =
+      nextCredits > 0 && nextGrade >= 0 && nextGrade <= 4
+        ? Number((((current ?? 0) * attempted + nextGrade * nextCredits) / (attempted + nextCredits)).toFixed(2))
+        : null;
+  return (
+    <section className="panel what-if">
+      <h3>What-if GPA calculator</h3>
+      <p className="muted">Estimate one hypothetical new course using your published GPA. This stays in your browser and does not change your academic record.</p>
+      <div className="what-if-fields">
+        <label>Hypothetical credits<input type="number" min="0.5" max="20" step="0.5" value={credits} onChange={(e) => setCredits(e.target.value)} /></label>
+        <label>Hypothetical grade points<input type="number" min="0" max="4" step="0.01" value={grade} onChange={(e) => setGrade(e.target.value)} /></label>
+      </div>
+      <p>Estimated GPA after this scenario: <strong>{estimate === null ? "Enter valid values" : estimate.toFixed(2)}</strong></p>
+      <small className="muted">Current published GPA: {current === null ? "not available yet" : current.toFixed(2)} · attempted credits: {attempted}</small>
+    </section>
+  );
+}
 const labels: Record<string, string> = {
   weight: "Coursework weight (%)",
   reg: "Student registration",
+  session: "Held class session",
+  correction: "Attendance correction request",
+  request: "Review request",
+  document_request: "Document request",
+  ticket: "Support ticket",
+  reservation: "Book reservation",
+  renewal: "Loan renewal request",
+  opportunity: "Career opportunity",
+  application: "Student application",
+  schedule: "Exam schedule",
+  room: "Exam venue",
   assessment: "Coursework mark (0–100)",
-  exam: "Final exam mark (0–100)",
+  exam: "Exam or final exam mark (0–100)",
   prediction: "Estimated mark / 100",
   neighbors: "Historical examples",
   required_course: "Required prior course",
@@ -35,6 +69,19 @@ const labels: Record<string, string> = {
   earned: "Credits earned",
   remaining: "Credits remaining",
   day: "Class date",
+  exam_date: "Exam date",
+  starts_at: "Start time",
+  ends_at: "End time",
+  requested_due: "Requested due date",
+  requested_status: "Requested attendance status",
+  review_reason: "Review note (optional)",
+  document_type: "Document type",
+  opportunity_type: "Opportunity type",
+  application_url: "Application link (optional, HTTPS)",
+  cover_note: "Application note (optional)",
+  description: "Description",
+  purpose: "Purpose",
+  message: "Message",
   status: "Status",
   present: "Attendance",
   kind: "Type",
@@ -101,7 +148,7 @@ function Form({ action, saved }: { action: Action; saved: () => void }) {
           <label key={f.key}>
             {label(f.key)}
             {f.choices ? (
-              <select name={f.key} required defaultValue="">
+              <select name={f.key} required defaultValue={f.defaultValue ?? ""}>
                 <option value="">
                   {f.choices.length
                     ? "Select an option"
@@ -131,6 +178,8 @@ function Form({ action, saved }: { action: Action; saved: () => void }) {
                       password: "password",
                       email: "email",
                       date: "date",
+                      time: "time",
+                      optional: "text",
                     } as Record<string, string>
                   )[f.type] || "text"
                 }
@@ -159,6 +208,64 @@ function Form({ action, saved }: { action: Action; saved: () => void }) {
         </button>
       </form>
     </details>
+  );
+}
+function TranscriptDownload() {
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  async function download() {
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await api<{
+        student: { student_no?: string; name?: string } | null;
+        cgpa: number | null;
+        earned_credits: number;
+        results: {
+          semester: string;
+          course: string;
+          credits: number;
+          mark: number;
+          grade: string | null;
+          points: number | null;
+          state: string | null;
+        }[];
+      }>("/students/me/transcript");
+      const cell = (value: unknown) => {
+        let text = String(value ?? "");
+        if (/^[\t\r ]*[=+\-@]/.test(text)) text = "'" + text;
+        return '"' + text.replaceAll('"', '""') + '"';
+      };
+      const lines = [
+        ["Student ID", data.student?.student_no, "Student name", data.student?.name],
+        ["CGPA", data.cgpa, "Earned credits", data.earned_credits],
+        [],
+        ["Semester", "Course", "Credits", "Mark", "Grade", "Grade points", "Publication state"],
+        ...data.results.map((r) => [r.semester, r.course, r.credits, r.mark, r.grade, r.points, r.state]),
+      ];
+      const csv = "\uFEFF" + lines.map((row) => row.map(cell).join(",")).join("\r\n"),
+        blob = new Blob([csv], { type: "text/csv;charset=utf-8" }),
+        url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = "student-transcript-" + (data.student?.student_no || "records") + ".csv";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel transcript-download">
+      <h3>Official published results</h3>
+      <p className="muted">Download a CSV grade sheet. Unpublished grades are excluded.</p>
+      <button onClick={download} disabled={busy}>{busy ? "Preparing…" : "Download grade sheet (CSV)"}</button>
+      {error && <Status error={error} />}
+    </section>
   );
 }
 function GridView({
@@ -359,14 +466,15 @@ export default function Operations({
         Loading campus services…
       </div>
     );
-  const group = data.groups[active];
+  const group = data.groups[active],
+    standing = group?.tables.find((t) => t.title === "Academic standing")?.items[0];
   return (
     <>
       <h1>Campus services</h1>
       <div className="op-tabs">
         {[
           ...Object.keys(data.groups),
-          ...(data.phase4 ? ["Ask Campus"] : []),
+          ...(data.phase4 ? ["Academic Assistant"] : []),
         ].map((k) => (
           <button
             aria-pressed={active === k}
@@ -393,14 +501,18 @@ export default function Operations({
           </div>
           {group.tables.some((t) => t.title.includes("estimates")) && (
             <p className="muted">
-              Estimates use up to five comparable historical results. A blank
-              estimate means fewer than three usable examples or missing
-              indicators.
+              These are transparent rule-based estimates from up to five comparable historical results, not a trained AI model or an official grade. A blank estimate means there are fewer than three usable examples or missing indicators.
             </p>
+          )}
+          {data.role === "STUDENT" && standing && (
+            <WhatIfGpa
+              current={standing.cgpa == null ? null : Number(standing.cgpa)}
+              attempted={Number(standing.attempted ?? 0)}
+            />
           )}
         </>
       )}
-      {active === "Ask Campus" ? (
+      {active === "Academic Assistant" ? (
         <form
           className="op-chat"
           onSubmit={async (e) => {
@@ -419,25 +531,27 @@ export default function Operations({
           }}
         >
           <label>
-            Ask about your campus records
+            Ask about your campus records (answers use only records you are allowed to see)
             <input
               value={q}
               maxLength={400}
               onChange={(e) => setQ(e.target.value)}
               required
-              placeholder="How much fee is due?"
+              placeholder="What is my next exam?"
             />
           </label>
           <button className="primary" disabled={asking}>
             {asking ? "Checking…" : "Ask Campus"}
           </button>
+          <p className="muted">Intent-based lookup of university records. It does not run generated SQL or make academic decisions.</p>
           <p role="status">{answer}</p>
         </form>
-      ) : (
+      ) : group ? (
         <>
+          {active === "Teaching" && data.role === "STUDENT" && <TranscriptDownload />}
           {group.forms.map((a) => (
             <Form
-              key={a.key}
+              key={a.key + tick}
               action={a}
               saved={() => {
                 setSuccess(a.title + " · Saved");
@@ -453,6 +567,8 @@ export default function Operations({
             />
           ))}
         </>
+      ) : (
+        <Status error="This workspace section is unavailable." />
       )}
     </>
   );

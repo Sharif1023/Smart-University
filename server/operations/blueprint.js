@@ -1,6 +1,7 @@
 import { fail } from "../security.js";
 import { today, score } from "./records.js";
 import { bands } from "./grade-bands.js";
+import { isIsoDate } from "../validation.js";
 const bad = (m) => fail(422, "WORKFLOW_RULE", m);
 export const extraForms = [
   [
@@ -262,6 +263,26 @@ export const extraForms = [
     "THESIS_SUPERVISOR",
     "thesis:scheduledTheses outcome:outcomes note:long",
   ],
+  ["exam_schedule", "Routine", "Add exam schedule", "ADMIN", "offering:allOfferings title exam_type:examTypes exam_date:date starts_at:time ends_at:time room:rooms"],
+  ["exam_state", "Routine", "Publish or cancel an exam", "ADMIN", "schedule:examDrafts state:examStates"],
+  ["attendance_request", "Student services", "Request attendance correction", "STUDENT", "session:correctionSessions requested_status:attendanceStatuses reason:long"],
+  ["attendance_review", "Teaching", "Review attendance correction", "ADMIN TEACHER", "correction:reviewableCorrections decision:decisions review_reason:optional"],
+  ["grade_review_request", "Teaching", "Request a published grade review", "STUDENT", "reg:publishedRegs reason:long"],
+  ["grade_review", "Teaching", "Review a grade request", "ADMIN TEACHER", "request:pendingGradeReviews state:gradeReviewStates response:optional"],
+  ["document_request", "Student documents", "Request a student document", "STUDENT", "document_type:documentTypes purpose:long"],
+  ["document_review", "Student documents", "Review document request", "ADMIN", "document_request:pendingDocuments decision:documentDecisions response:optional"],
+  ["support_ticket", "Student support", "Open a support ticket", "STUDENT", "category:supportCategories subject description:long"],
+  ["ticket_reply", "Student support", "Reply to a support ticket", "ADMIN STUDENT", "ticket:replyableTickets message:long"],
+  ["ticket_status", "Student support", "Update ticket status", "ADMIN", "ticket:openTickets state:ticketStates"],
+  ["reserve_book", "Library", "Reserve an unavailable book", "STUDENT", "book:unavailableBooks"],
+  ["cancel_reservation", "Library", "Cancel a pending reservation", "STUDENT", "reservation:ownReservations"],
+  ["reservation_review", "Library", "Review book reservation", "ADMIN LIBRARIAN", "reservation:pendingReservations state:reservationStates"],
+  ["renewal_request", "Library", "Request a loan renewal", "STUDENT", "loan:renewableLoans requested_due:date"],
+  ["renewal_review", "Library", "Review loan renewal", "ADMIN LIBRARIAN", "renewal:pendingRenewals decision:decisions review_reason:optional"],
+  ["notification_preferences", "Account settings", "Save notification preferences", "*", "academic:toggle finance:toggle library:toggle thesis:toggle notices:toggle"],
+  ["career_opportunity", "Career & internship", "Add a career opportunity", "ADMIN", "title organization opportunity_type:opportunityTypes description:long location:optional deadline:optional application_url:optional"],
+  ["career_apply", "Career & internship", "Apply for an opportunity", "STUDENT", "opportunity:availableOpportunities cover_note:optional"],
+  ["career_review", "Career & internship", "Review a student application", "ADMIN", "application:submittedApplications state:applicationStates"],
 ];
 export async function supplement(db, d, u) {
   const read = async (sql, args = []) => (await db.execute(sql, args))[0],
@@ -310,7 +331,9 @@ export async function supplement(db, d, u) {
     assessments: await by(
       "SELECT a.*,c.code FROM assessments a JOIN offerings o ON o.id=a.offering JOIN courses c ON c.id=o.course",
       "a.offering",
-      own,
+      u.role === "STUDENT"
+        ? d.regs.filter((r) => r.status === "Approved").map((r) => r.offering)
+        : own,
     ),
     sessions: await by(
       "SELECT s.*,c.code FROM class_sessions s JOIN offerings o ON o.id=s.offering JOIN courses c ON c.id=o.course",
@@ -360,7 +383,49 @@ export async function supplement(db, d, u) {
       "loan",
       d.loans.map((l) => l.id),
     ),
+    examSchedules: await read(
+      `SELECT x.*,o.section,c.code,c.name course_name,t.code semester,rm.name room_name FROM exam_schedules x JOIN offerings o ON o.id=x.offering JOIN courses c ON c.id=o.course JOIN semesters t ON t.id=o.term JOIN rooms rm ON rm.id=x.room WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "x.state='Published' AND EXISTS(SELECT 1 FROM registrations r WHERE r.offering=x.offering AND r.student=? AND r.status='Approved')" : u.role === "TEACHER" ? "o.teacher=?" : "x.state='Published'"} ORDER BY x.exam_date,x.starts_at`,
+      ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
+    ),
+    corrections: await read(
+      `SELECT a.*,c.code,o.teacher,o.section,u.name student_name FROM attendance_correction_requests a JOIN registrations r ON r.id=a.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN students s ON s.user_id=a.student JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "a.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY a.created_at DESC`,
+      ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
+    ),
+    gradeReviews: await read(
+      `SELECT g.*,c.code,o.teacher,u.name student_name FROM grade_review_requests g JOIN registrations r ON r.id=g.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN users u ON u.id=g.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "g.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY g.created_at DESC`,
+      ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
+    ),
+    documentRequests: await read(
+      `SELECT a.*,u.name student_name FROM student_document_requests a JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.requested_at DESC`,
+      admin ? [] : [u.id],
+    ),
+    tickets: await read(
+      `SELECT a.*,u.name student_name,(SELECT COUNT(*) FROM support_replies r WHERE r.ticket=a.id) reply_count FROM support_tickets a JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.updated_at DESC`,
+      admin ? [] : [u.id],
+    ),
+    reservations: await read(
+      `SELECT r.*,b.title,u.name student_name FROM library_reservations r JOIN books b ON b.id=r.book JOIN users u ON u.id=r.student WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
+      admin || u.role === "LIBRARIAN" ? [] : [u.id],
+    ),
+    renewals: await read(
+      `SELECT r.*,l.due current_due,b.title,u.name student_name FROM loan_renewal_requests r JOIN loans l ON l.id=r.loan JOIN books b ON b.id=l.book JOIN users u ON u.id=r.student WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
+      admin || u.role === "LIBRARIAN" ? [] : [u.id],
+    ),
+    preferences: (await read("SELECT * FROM notification_preferences WHERE user_id=?", [u.id]))[0] ?? { user_id: u.id, academic: 1, finance: 1, library: 1, thesis: 1, notices: 1 },
+    opportunities: await read(
+      `SELECT * FROM career_opportunities WHERE ${admin ? "1=1" : "status='Published' AND (deadline IS NULL OR deadline>=?)"} ORDER BY deadline IS NULL,deadline,id DESC`,
+      admin ? [] : [today()],
+    ),
+    applications: await read(
+      `SELECT a.*,o.title opportunity_title,o.organization,u.name student_name FROM career_applications a JOIN career_opportunities o ON o.id=a.opportunity JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.submitted_at DESC`,
+      admin ? [] : [u.id],
+    ),
   };
+  const ticketIds = extra.tickets.map((t) => t.id);
+  extra.replies = await read(
+    `SELECT r.*,u.name author FROM support_replies r JOIN users u ON u.id=r.author WHERE r.ticket IN (${ticketIds.length ? ticketIds.map(() => "?").join(",") : "NULL"}) ORDER BY r.created_at`,
+    ticketIds,
+  );
   for (const r of d.regs) {
     const pub = extra.publications.find((p) => p.reg === r.id);
     if (pub && r.published) {
@@ -449,6 +514,35 @@ export function extraOptions(d, u) {
       th,
     ),
     outcomes: choices(["Passed", "Revision required"]),
+    allOfferings: opts(d.offerings, (r) => r.code + " · " + r.semester + " / " + r.section),
+    examTypes: choices(["Midterm", "Final", "Quiz", "Practical", "Viva"]),
+    examDrafts: opts(e.examSchedules.filter((x) => x.state !== "Cancelled"), (x) => x.code + " · " + x.title + " · " + x.exam_date + " · " + x.state),
+    examStates: choices(["Published", "Cancelled"]),
+    correctionSessions: e.sessions
+      .filter((s) => s.status === "Held")
+      .flatMap((s) => d.regs.filter((r) => r.offering === s.offering && r.status === "Approved" && (u.role !== "STUDENT" || r.student === u.id)).map((r) => ({ id: `${r.id}|${s.day}`, label: `${r.code} · ${s.day}` }))),
+    attendanceStatuses: choices(["Present", "Absent", "Late", "Excused"]),
+    reviewableCorrections: opts(e.corrections.filter((x) => x.status === "Pending" && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.day),
+    pendingGradeReviews: opts(e.gradeReviews.filter((x) => ["Pending", "Under review"].includes(x.status) && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.status),
+    gradeReviewStates: choices(["Under review", "Resolved", "Rejected"]),
+    documentTypes: choices(["Enrollment certificate", "Transcript", "Student ID card", "Bonafide certificate", "Other"]),
+    pendingDocuments: opts(e.documentRequests.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.document_type),
+    documentDecisions: choices(["Approved", "Rejected", "Ready"]),
+    supportCategories: choices(["Academic", "Registration", "Finance", "Technical", "Other"]),
+    replyableTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status)), (x) => "#" + x.id + " · " + x.subject),
+    openTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status)), (x) => "#" + x.id + " · " + x.subject),
+    ticketStates: choices(["Open", "In progress", "Resolved", "Closed"]),
+    unavailableBooks: opts(d.books.filter((x) => Number(x.available) === 0), (x) => x.code + " · " + x.title),
+    ownReservations: opts(e.reservations.filter((x) => x.student === u.id && x.status === "Pending"), (x) => x.title),
+    pendingReservations: opts(e.reservations.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.title),
+    reservationStates: choices(["Ready", "Rejected"]),
+    renewableLoans: opts(d.loans.filter((x) => x.student === u.id && !x.returned && x.due >= today() && !e.renewals.some((r) => r.loan === x.id && ["Pending", "Approved"].includes(r.status))), (x) => x.title + " · due " + x.due),
+    pendingRenewals: opts(e.renewals.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.title),
+    toggle: choices(["On", "Off"]),
+    opportunityTypes: choices(["Internship", "Full-time", "Part-time", "Research", "Scholarship"]),
+    availableOpportunities: opts(e.opportunities.filter((x) => x.status === "Published" && !e.applications.some((a) => a.opportunity === x.id && a.student === u.id)), (x) => x.title + " · " + x.organization),
+    submittedApplications: opts(e.applications.filter((x) => ["Submitted", "Under review"].includes(x.status)), (x) => x.student_name + " · " + x.opportunity_title + " · " + x.status),
+    applicationStates: choices(["Under review", "Shortlisted", "Rejected"]),
   };
 }
 export function addTables(groups, table, d, u) {
@@ -529,6 +623,39 @@ export function addTables(groups, table, d, u) {
   );
   add("Routine", "Room availability exceptions", "name slot reason", e.blocks);
   add("Routine", "Review history", "term state actor created", e.reviews);
+  add("Routine", "Exam schedule", "code course_name semester title exam_type exam_date starts_at ends_at room_name state", e.examSchedules);
+  add("Teaching", "Student attendance correction requests", "student_name code day requested_status reason status review_reason created_at", e.corrections);
+  add("Teaching", "Grade review requests", "student_name code reason status response created_at updated_at", e.gradeReviews);
+  add("Library", "Book reservations", "student_name title status created_at", e.reservations);
+  add("Library", "Loan renewal requests", "student_name title current_due requested_due status review_reason", e.renewals);
+  if (u.role === "STUDENT" || u.role === "ADMIN") {
+    if (!groups["Student services"])
+      groups["Student services"] = { tables: [], forms: [] };
+    groups["Student services"].tables.push(
+      table("My attendance correction requests", "code day requested_status status review_reason created_at", e.corrections),
+    );
+    if (!groups["Student documents"])
+      groups["Student documents"] = { tables: [], forms: [] };
+    groups["Student documents"].tables.push(
+      table("Document requests", "document_type purpose status response requested_at updated_at", e.documentRequests),
+    );
+    if (!groups["Student support"])
+      groups["Student support"] = { tables: [], forms: [] };
+    groups["Student support"].tables.push(
+      table("Support tickets", "id category subject description status reply_count created_at updated_at", e.tickets),
+      table("Ticket replies", "ticket author message created_at", e.replies),
+    );
+    if (!groups["Career & internship"])
+      groups["Career & internship"] = { tables: [], forms: [] };
+    groups["Career & internship"].tables.push(
+      table("Opportunities", "title organization opportunity_type description location deadline application_url status", e.opportunities),
+      table("My applications", "opportunity_title organization cover_note status submitted_at", e.applications),
+    );
+  }
+  groups["Account settings"] = {
+    tables: [table("Notification preferences", "academic finance library thesis notices updated_at", [e.preferences])],
+    forms: [],
+  };
   add(
     "Thesis",
     "Feedback by submission version",
@@ -545,6 +672,11 @@ export function addTables(groups, table, d, u) {
 export async function runExtra(db, u, d, key, b) {
   const q = async (sql, ...args) => (await db.execute(sql, args))[0],
     e = d.extra;
+  const notify = async (recipient, message, category = "academic") => {
+    const column = { academic: "academic", finance: "finance", library: "library", thesis: "thesis", notices: "notices" }[category] ?? "academic";
+    const [preference] = await q(`SELECT ${column} enabled FROM notification_preferences WHERE user_id=?`, recipient);
+    if (preference?.enabled !== 0) await q("INSERT INTO notifications(recipient,message) VALUES(?,?)", recipient, message);
+  };
   switch (key) {
     case "coauthor":
       await q("INSERT IGNORE INTO authors(name) VALUES(?)", b.name);
@@ -1069,6 +1201,185 @@ export async function runExtra(db, u, d, key, b) {
         u.id,
         b.note,
       );
+      break;
+    }
+    case "exam_schedule": {
+      const offering = d.offerings.find((o) => o.id === b.offering),
+        room = d.rooms.find((r) => r.id === b.room);
+      if (!offering || !room?.active || room.kind !== offering.kind)
+        bad("Choose an active room that matches the course type.");
+      const [term] = await q("SELECT starts_on,ends_on FROM semesters WHERE id=?", offering.term);
+      if (b.exam_date < term.starts_on || b.exam_date > new Date(new Date(term.ends_on).getTime() + 60 * 86400000).toISOString().slice(0, 10))
+        bad("Choose an exam date within the semester or the following 60 days.");
+      if (b.ends_at <= b.starts_at || b.title.length > 140)
+        bad("Check the exam title and time range.");
+      if ((await q("SELECT id FROM exam_schedules WHERE room=? AND exam_date=? AND state<>'Cancelled' AND starts_at<? AND ends_at>?", b.room, b.exam_date, b.ends_at, b.starts_at)).length)
+        bad("This room already has an exam during that time.");
+      if ((await q("SELECT id FROM exam_schedules WHERE offering=? AND exam_type=?", b.offering, b.exam_type)).length)
+        bad("An exam of this type is already scheduled for this course section.");
+      await q("INSERT INTO exam_schedules(offering,title,exam_type,exam_date,starts_at,ends_at,room,created_by) VALUES(?,?,?,?,?,?,?,?)", b.offering, b.title, b.exam_type, b.exam_date, b.starts_at, b.ends_at, b.room, u.id);
+      break;
+    }
+    case "exam_state": {
+      const exam = e.examSchedules.find((x) => x.id === b.schedule);
+      if (!exam || exam.state === "Cancelled") bad("This exam schedule is no longer available.");
+      await q("UPDATE exam_schedules SET state=? WHERE id=?", b.state, b.schedule);
+      if (b.state === "Published" && exam.state !== "Published") {
+        const recipients = await q("SELECT DISTINCT student FROM registrations WHERE offering=? AND status='Approved'", exam.offering);
+        for (const recipient of recipients) await notify(recipient.student, exam.title + " is scheduled for " + exam.exam_date, "academic");
+      }
+      break;
+    }
+    case "attendance_request": {
+      const match = /^(\d+)\|(\d{4}-\d\d-\d\d)$/.exec(b.session);
+      if (!match) bad("Choose a valid held class session.");
+      const regId = Number(match[1]), day = match[2],
+        reg = d.regs.find((r) => r.id === regId && r.student === u.id && r.status === "Approved"),
+        session = e.sessions.find((s) => s.offering === reg?.offering && s.day === day && s.status === "Held");
+      if (!reg || !session || day > today() || b.reason.length > 500)
+        bad("Choose a past held class from your approved course and include a reason.");
+      if ((await q("SELECT id FROM attendance_correction_requests WHERE reg=? AND day=? AND status='Pending'", regId, day)).length)
+        bad("A correction request is already pending for this class.");
+      const [current] = await q("SELECT COALESCE(ast.status,CASE WHEN a.present=1 THEN 'Present' ELSE 'Absent' END) status FROM class_sessions cs LEFT JOIN attendance a ON a.reg=? AND a.day=cs.day LEFT JOIN attendance_status ast ON ast.reg=a.reg AND ast.day=a.day WHERE cs.id=?", regId, session.id);
+      if (current?.status === b.requested_status) bad("The official attendance already has this status.");
+      await q("INSERT INTO attendance_correction_requests(reg,student,day,requested_status,reason) VALUES(?,?,?,?,?)", regId, u.id, day, b.requested_status, b.reason);
+      break;
+    }
+    case "attendance_review": {
+      const [request] = await q("SELECT a.*,o.teacher,cs.id session_id FROM attendance_correction_requests a JOIN registrations r ON r.id=a.reg JOIN offerings o ON o.id=r.offering JOIN class_sessions cs ON cs.offering=r.offering AND cs.day=a.day WHERE a.id=? FOR UPDATE", b.correction);
+      if (!request || request.status !== "Pending" || (u.role !== "ADMIN" && request.teacher !== u.id))
+        bad("This pending request is outside your teaching assignment.");
+      if (b.review_reason.length > 500) bad("Review note is too long.");
+      if (b.decision === "Approved") {
+        const [previous] = await q("SELECT COALESCE(ast.status,CASE WHEN a.present=1 THEN 'Present' ELSE 'Absent' END) status FROM attendance a LEFT JOIN attendance_status ast ON ast.reg=a.reg AND ast.day=a.day WHERE a.reg=? AND a.day=?", request.reg, request.day);
+        const oldStatus = previous?.status ?? "Absent";
+        await q("INSERT INTO attendance(reg,day,present) VALUES(?,?,?) ON DUPLICATE KEY UPDATE present=VALUES(present)", request.reg, request.day, ["Present", "Late"].includes(request.requested_status));
+        await q("INSERT INTO attendance_status(reg,day,status,actor) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),actor=VALUES(actor)", request.reg, request.day, request.requested_status, u.id);
+        await q("INSERT INTO attendance_notes(session_id,reg,actor,reason,previous_status,new_status) VALUES(?,?,?,?,?,?)", request.session_id, request.reg, u.id, (b.review_reason || request.reason).slice(0, 140), oldStatus, request.requested_status);
+      }
+      await q("UPDATE attendance_correction_requests SET status=?,reviewer=?,review_reason=? WHERE id=?", b.decision, u.id, b.review_reason || null, b.correction);
+      await notify(request.student, "Attendance correction request " + b.decision.toLowerCase() + " for " + request.day + (b.review_reason ? ": " + b.review_reason.slice(0, 100) : ""));
+      break;
+    }
+    case "grade_review_request": {
+      const reg = d.regs.find((r) => r.id === b.reg && r.student === u.id && r.published);
+      if (!reg || b.reason.length > 1000) bad("Choose one of your published results and include a short reason.");
+      if ((await q("SELECT id FROM grade_review_requests WHERE reg=? AND status IN ('Pending','Under review')", reg.id)).length)
+        bad("A grade review is already open for this course.");
+      await q("INSERT INTO grade_review_requests(reg,student,reason) VALUES(?,?,?)", reg.id, u.id, b.reason);
+      break;
+    }
+    case "grade_review": {
+      const [request] = await q("SELECT g.*,o.teacher FROM grade_review_requests g JOIN registrations r ON r.id=g.reg JOIN offerings o ON o.id=r.offering WHERE g.id=? FOR UPDATE", b.request);
+      if (!request || !["Pending", "Under review"].includes(request.status) || (u.role !== "ADMIN" && request.teacher !== u.id))
+        bad("This grade review request is outside your teaching assignment or already closed.");
+      if (b.response.length > 500) bad("Response must be 500 characters or fewer.");
+      await q("UPDATE grade_review_requests SET status=?,response=?,reviewer=? WHERE id=?", b.state, b.response || null, u.id, b.request);
+      await notify(request.student, "Your grade review request is " + b.state.toLowerCase() + (b.response ? ": " + b.response.slice(0, 100) : ""));
+      break;
+    }
+    case "document_request":
+      if (b.purpose.length > 1000) bad("Purpose must be 1000 characters or fewer.");
+      await q("INSERT INTO student_document_requests(student,document_type,purpose) VALUES(?,?,?)", u.id, b.document_type, b.purpose);
+      break;
+    case "document_review": {
+      const [request] = await q("SELECT * FROM student_document_requests WHERE id=? FOR UPDATE", b.document_request);
+      if (!request || request.status !== "Pending") bad("This document request has already been reviewed.");
+      if (b.response.length > 500) bad("Response must be 500 characters or fewer.");
+      await q("UPDATE student_document_requests SET status=?,response=?,reviewer=? WHERE id=?", b.decision, b.response || null, u.id, b.document_request);
+      await notify(request.student, "Your " + request.document_type + " request was " + b.decision.toLowerCase() + (b.response ? ": " + b.response.slice(0, 100) : ""));
+      break;
+    }
+    case "support_ticket":
+      if (b.description.length > 5000) bad("Description must be 5000 characters or fewer.");
+      await q("INSERT INTO support_tickets(student,category,subject,description) VALUES(?,?,?,?)", u.id, b.category, b.subject, b.description);
+      break;
+    case "ticket_reply": {
+      const [ticket] = await q("SELECT * FROM support_tickets WHERE id=? FOR UPDATE", b.ticket);
+      if (!ticket || (u.role === "STUDENT" && ticket.student !== u.id) || ["Resolved", "Closed"].includes(ticket.status))
+        bad("This ticket is unavailable or closed.");
+      if (b.message.length > 5000) bad("Reply must be 5000 characters or fewer.");
+      await q("INSERT INTO support_replies(ticket,author,message) VALUES(?,?,?)", b.ticket, u.id, b.message);
+      await q("UPDATE support_tickets SET updated_at=CURRENT_TIMESTAMP WHERE id=?", b.ticket);
+      if (u.role !== "STUDENT") await notify(ticket.student, "A staff member replied to support ticket #" + ticket.id);
+      break;
+    }
+    case "ticket_status": {
+      const [ticket] = await q("SELECT * FROM support_tickets WHERE id=? FOR UPDATE", b.ticket);
+      if (!ticket || ["Resolved", "Closed"].includes(ticket.status)) bad("This ticket is already closed.");
+      await q("UPDATE support_tickets SET status=? WHERE id=?", b.state, b.ticket);
+      await notify(ticket.student, "Support ticket #" + ticket.id + " is now " + b.state);
+      break;
+    }
+    case "reserve_book": {
+      const book = d.books.find((x) => x.id === b.book);
+      if (!book || Number(book.available) > 0) bad("Reservations are for books with no available copies.");
+      if ((await q("SELECT id FROM library_reservations WHERE student=? AND book=? AND status IN ('Pending','Ready')", u.id, b.book)).length)
+        bad("You already have an active reservation for this book.");
+      await q("INSERT INTO library_reservations(book,student) VALUES(?,?)", b.book, u.id);
+      break;
+    }
+    case "cancel_reservation": {
+      const [reservation] = await q("SELECT * FROM library_reservations WHERE id=? FOR UPDATE", b.reservation);
+      if (!reservation || reservation.student !== u.id || reservation.status !== "Pending") bad("Only your pending reservations can be cancelled.");
+      await q("UPDATE library_reservations SET status='Cancelled' WHERE id=?", b.reservation);
+      break;
+    }
+    case "reservation_review": {
+      const [reservation] = await q("SELECT * FROM library_reservations WHERE id=? FOR UPDATE", b.reservation);
+      if (!reservation || reservation.status !== "Pending") bad("This reservation has already been reviewed.");
+      if (b.state === "Ready") {
+        const [stock] = await q("SELECT copies-(SELECT COUNT(*) FROM loans WHERE book=? AND returned IS NULL) available FROM books WHERE id=?", reservation.book, reservation.book);
+        if (!stock || Number(stock.available) <= 0) bad("No copy is available yet; keep this reservation pending.");
+      }
+      await q("UPDATE library_reservations SET status=?,reviewed_by=? WHERE id=?", b.state, u.id, b.reservation);
+      await notify(reservation.student, "Library reservation " + b.state.toLowerCase(), "library");
+      break;
+    }
+    case "renewal_request": {
+      const loan = d.loans.find((x) => x.id === b.loan && x.student === u.id && !x.returned);
+      if (!loan || loan.due < today() || b.requested_due <= loan.due) bad("Renewals must be requested before the due date and extend it.");
+      const maxDue = new Date(new Date(loan.due).getTime() + 14 * 86400000).toISOString().slice(0, 10);
+      if (b.requested_due > maxDue) bad("A renewal can extend the due date by at most 14 days.");
+      if (e.renewals.some((r) => r.loan === loan.id && ["Pending", "Approved"].includes(r.status))) bad("This loan already has a pending or approved renewal.");
+      if ((await q("SELECT id FROM library_reservations WHERE book=? AND student<>? AND status IN ('Pending','Ready')", loan.book, u.id)).length) bad("Another student is waiting for this book.");
+      await q("INSERT INTO loan_renewal_requests(loan,student,requested_due) VALUES(?,?,?)", loan.id, u.id, b.requested_due);
+      break;
+    }
+    case "renewal_review": {
+      const [request] = await q("SELECT r.*,l.due current_due,l.returned,l.book FROM loan_renewal_requests r JOIN loans l ON l.id=r.loan WHERE r.id=? FOR UPDATE", b.renewal);
+      if (!request || request.status !== "Pending") bad("This renewal request has already been reviewed.");
+      if (b.review_reason.length > 500) bad("Review note is too long.");
+      if (b.decision === "Approved") {
+        if (request.returned || request.current_due < today() || request.requested_due <= request.current_due || request.requested_due > new Date(new Date(request.current_due).getTime() + 14 * 86400000).toISOString().slice(0, 10)) bad("The loan no longer meets renewal policy.");
+        if ((await q("SELECT id FROM library_reservations WHERE book=? AND student<>? AND status IN ('Pending','Ready')", request.book, request.student)).length) bad("Another student is waiting for this book.");
+        await q("UPDATE loans SET due=? WHERE id=?", request.requested_due, request.loan);
+      }
+      await q("UPDATE loan_renewal_requests SET status=?,reviewed_by=?,review_reason=? WHERE id=?", b.decision, u.id, b.review_reason || null, b.renewal);
+      await notify(request.student, "Library loan renewal " + b.decision.toLowerCase() + (b.review_reason ? ": " + b.review_reason.slice(0, 100) : ""), "library");
+      break;
+    }
+    case "notification_preferences":
+      await q("INSERT INTO notification_preferences(user_id,academic,finance,library,thesis,notices) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE academic=VALUES(academic),finance=VALUES(finance),library=VALUES(library),thesis=VALUES(thesis),notices=VALUES(notices)", u.id, b.academic === "On", b.finance === "On", b.library === "On", b.thesis === "On", b.notices === "On");
+      break;
+    case "career_opportunity": {
+      if (b.description.length > 5000 || b.location.length > 120) bad("Opportunity details exceed the allowed length.");
+      if (b.deadline && (!isIsoDate(b.deadline) || b.deadline < today())) bad("Choose a valid current or future application deadline.");
+      if ((await q("SELECT id FROM career_opportunities WHERE title=? AND organization=?", b.title, b.organization)).length) bad("This opportunity already exists.");
+      await q("INSERT INTO career_opportunities(title,organization,opportunity_type,description,location,deadline,application_url,status,created_by) VALUES(?,?,?,?,?,NULLIF(?,''),NULLIF(?,''),'Published',?)", b.title, b.organization, b.opportunity_type, b.description, b.location, b.deadline, b.application_url, u.id);
+      break;
+    }
+    case "career_apply": {
+      const opportunity = e.opportunities.find((x) => x.id === b.opportunity && x.status === "Published" && (!x.deadline || x.deadline >= today()));
+      if (!opportunity || b.cover_note.length > 1000) bad("This opportunity is closed or the application note is too long.");
+      await q("INSERT INTO career_applications(opportunity,student,cover_note) VALUES(?,?,NULLIF(?,''))", b.opportunity, u.id, b.cover_note);
+      break;
+    }
+    case "career_review": {
+      const [application] = await q("SELECT * FROM career_applications WHERE id=? FOR UPDATE", b.application);
+      if (!application || !["Submitted", "Under review"].includes(application.status) || !["Under review", "Shortlisted", "Rejected"].includes(b.state)) bad("This application has already been reviewed.");
+      await q("UPDATE career_applications SET status=? WHERE id=?", b.state, b.application);
+      await notify(application.student, "Your career application is " + b.state.toLowerCase());
       break;
     }
     default:

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { records, score } from "./operations/records.js";
+import { records, score, performance } from "./operations/records.js";
 import { fail } from "./security.js";
 import { pool } from "./db.js";
 export const personal = Router();
@@ -22,11 +22,28 @@ personal.get(["/students/me", "/students/me/:area"], async (req, res) => {
       .map((r) => ({
         course: r.code,
         semester: r.semester,
+        credits: r.credits,
         mark: score(r),
         grade: r.letter,
         points: r.grade_points,
         state: r.result_state,
       })),
+    transcript: {
+      student: d.people[0] ?? null,
+      results: d.regs
+        .filter((r) => r.published)
+        .map((r) => ({
+          course: r.code,
+          semester: r.semester,
+          credits: r.credits,
+          mark: score(r),
+          grade: r.letter,
+          points: r.grade_points,
+          state: r.result_state,
+        })),
+      cgpa: performance(d.regs, []).cgpa,
+      earned_credits: performance(d.regs, []).earned,
+    },
     fees: d.bills,
   };
   const key = req.params.area ?? "profile";

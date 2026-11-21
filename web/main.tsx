@@ -246,7 +246,10 @@ function CommandPalette({ items }: { items: [string, string][] }) {
   );
 }
 function Profile() {
-  const { data, error } = useLoad<Row>("/profile");
+  const [tick, setTick] = useState(0),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false),
+    { data, error } = useLoad<Row>("/profile", tick);
   if (!data) return <Status error={error} />;
   const fields: Record<string, string> = {
     name: "Full name",
@@ -258,10 +261,90 @@ function Profile() {
     department: "Department",
     status: "Academic status",
   };
+  async function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget,
+      values = new FormData(form),
+      body: Record<string, unknown> = Object.fromEntries(
+        [
+          "date_of_birth",
+          "phone",
+          "present_address",
+          "permanent_address",
+          "guardian_name",
+          "guardian_phone",
+          "emergency_name",
+          "emergency_phone",
+        ].map((key) => [key, String(values.get(key) ?? "")]),
+      ),
+      photo = values.get("photo");
+    setBusy(true);
+    setMessage("");
+    try {
+      if (photo instanceof File && photo.size) {
+        if (
+          photo.size > 1048576 ||
+          !["image/jpeg", "image/png", "image/webp"].includes(photo.type)
+        )
+          throw Error("Use a JPG, PNG or WebP image under 1 MiB.");
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",")[1]);
+          reader.onerror = () => reject(Error("The photo could not be read."));
+          reader.readAsDataURL(photo);
+        });
+        body.photo = { mime: photo.type, data };
+      }
+      body.remove_photo = values.get("remove_photo") === "on";
+      await api("/profile", "PUT", body);
+      setMessage("Profile saved.");
+      setTick((n) => n + 1);
+      form.querySelector<HTMLInputElement>('input[name="photo"]')!.value = "";
+      const removePhoto = form.querySelector<HTMLInputElement>('input[name="remove_photo"]');
+      if (removePhoto) removePhoto.checked = false;
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
       <h1>My profile</h1>
-      <section className="panel">
+      <section className="panel profile-card">
+        {data.role === "STUDENT" && (
+          <form onSubmit={save}>
+            <h2>Personal information</h2>
+            {data.has_photo ? (
+              <img className="profile-photo" src="/api/v1/profile/photo" alt="Your profile" />
+            ) : (
+              <p className="muted">No profile photo uploaded.</p>
+            )}
+            <label>
+              Profile photo (JPG, PNG or WebP · up to 1 MiB)
+              <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" />
+            </label>
+            {data.has_photo && (
+              <label className="inline-choice">
+                <input type="checkbox" name="remove_photo" /> Remove current photo
+              </label>
+            )}
+            <div className="profile-fields">
+              <label>Date of birth<input name="date_of_birth" type="date" defaultValue={String(data.date_of_birth ?? "")} /></label>
+              <label>Phone<input name="phone" type="tel" maxLength={32} defaultValue={String(data.phone ?? "")} /></label>
+              <label>Present address<input name="present_address" maxLength={250} defaultValue={String(data.present_address ?? "")} /></label>
+              <label>Permanent address<input name="permanent_address" maxLength={250} defaultValue={String(data.permanent_address ?? "")} /></label>
+              <label>Guardian name<input name="guardian_name" maxLength={100} defaultValue={String(data.guardian_name ?? "")} /></label>
+              <label>Guardian phone<input name="guardian_phone" type="tel" maxLength={32} defaultValue={String(data.guardian_phone ?? "")} /></label>
+              <label>Emergency contact<input name="emergency_name" maxLength={100} defaultValue={String(data.emergency_name ?? "")} /></label>
+              <label>Emergency phone<input name="emergency_phone" type="tel" maxLength={32} defaultValue={String(data.emergency_phone ?? "")} /></label>
+            </div>
+            {message && <Status error={message !== "Profile saved." ? message : undefined}>{message}</Status>}
+            <button className="primary" disabled={busy}>{busy ? "Saving…" : "Save profile"}</button>
+            <p className="muted">Your name, email, student number, program, batch and academic status are managed by university staff.</p>
+          </form>
+        )}
+        <h2>University account</h2>
         <dl>
           {Object.entries(fields)
             .filter(([k]) => data[k])
@@ -271,6 +354,8 @@ function Profile() {
                 <dd>{k === "role" ? roleName(String(data[k])) : data[k]}</dd>
               </div>
             ))}
+          {data.role === "STUDENT" && data.admission_session && <div><dt>Admission session</dt><dd>{data.admission_session}</dd></div>}
+          {data.role === "STUDENT" && data.advisor_name && <div><dt>Academic advisor</dt><dd>{data.advisor_name}</dd></div>}
         </dl>
       </section>
     </>

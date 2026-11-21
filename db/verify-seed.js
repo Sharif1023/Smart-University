@@ -33,10 +33,22 @@ try {
     "SELECT COUNT(*) AS total FROM users WHERE email IN ('admin@campus.test','student@campus.test','teacher@campus.test','advisor@campus.test','accounts_officer@campus.test','librarian@campus.test','thesis_supervisor@campus.test')",
   );
 
-  if (missingRoles.length || Number(coreUsers.total) !== 7)
+  const [[portalSeed]] = await pool.query(
+    "SELECT (SELECT COUNT(*) FROM students s LEFT JOIN student_profiles p ON p.student=s.user_id WHERE p.student IS NULL) missing_profiles,(SELECT COUNT(*) FROM users u LEFT JOIN notification_preferences p ON p.user_id=u.id WHERE p.user_id IS NULL) missing_preferences,(SELECT COUNT(*) FROM career_opportunities WHERE title='Campus software engineering internship' AND organization='Campus Innovation Lab') opportunities,(SELECT COUNT(*) FROM student_document_requests r JOIN users u ON u.id=r.student WHERE u.email='student@campus.test' AND r.purpose='Demo request for the current semester.') document_requests,(SELECT COUNT(*) FROM support_tickets t JOIN users u ON u.id=t.student WHERE u.email='student@campus.test' AND t.subject='Demo portal support request') support_tickets,(SELECT COUNT(*) FROM exam_schedules x JOIN offerings o ON o.id=x.offering JOIN courses c ON c.id=o.course JOIN semesters s ON s.id=o.term WHERE c.code='CSE201' AND s.code='LAB-2') exam_schedules",
+  );
+
+  const missingPortalSeed =
+    Number(portalSeed.missing_profiles) !== 0 ||
+    Number(portalSeed.missing_preferences) !== 0 ||
+    Number(portalSeed.opportunities) < 1 ||
+    Number(portalSeed.document_requests) < 1 ||
+    Number(portalSeed.support_tickets) < 1 ||
+    Number(portalSeed.exam_schedules) < 1;
+  if (missingRoles.length || Number(coreUsers.total) !== 7 || missingPortalSeed)
     throw Error(
       "Seed check failed. Missing or incomplete demo roles: " +
-        (missingRoles.join(", ") || "core accounts"),
+        (missingRoles.join(", ") ||
+          (missingPortalSeed ? "student portal fixtures" : "core accounts")),
     );
 
   console.log(

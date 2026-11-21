@@ -133,7 +133,7 @@ async function provisionLocalDatabase() {
       "DB_USER=" + setup.user,
       "DB_PASSWORD=" + setup.password,
       demoPasswordSetting,
-      "ENABLE_PHASE4=false",
+      "ENABLE_PHASE4=true",
     ];
     writeFileSync(".env", lines.join("\n") + "\n", { mode: 0o600 });
     unlinkSync(".local-setup.json");
@@ -153,6 +153,23 @@ function run(file, args = []) {
     throw Error(file + " failed. Inspect the error above and check .env.");
 }
 
+async function availablePort(preferred) {
+  for (let port = preferred; port < Math.min(65536, preferred + 20); port += 1) {
+    const probe = net.createServer();
+    try {
+      await new Promise((resolve, reject) =>
+        probe.once("error", reject).listen(port, "127.0.0.1", resolve),
+      );
+      await new Promise((resolve) => probe.close(resolve));
+      return port;
+    } catch (error) {
+      await new Promise((resolve) => probe.close(resolve));
+      if (error.code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw Error(`No free application port was found near ${preferred}.`);
+}
+
 async function main() {
   const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
   if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 16))
@@ -162,18 +179,16 @@ async function main() {
   prompt.close();
   process.loadEnvFile(".env");
 
-  const port = Number(process.env.PORT || 4000);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
+  const preferredPort = Number(process.env.PORT || 4000);
+  if (!Number.isInteger(preferredPort) || preferredPort < 1 || preferredPort > 65535)
     throw Error("Invalid PORT value in .env.");
+  const port = await availablePort(preferredPort);
+  if (port !== preferredPort)
+    console.log(`Port ${preferredPort} is busy; using ${port} instead.`);
+  process.env.PORT = String(port);
   const url = "http://localhost:" + port;
   process.env.APP_ORIGIN = url;
   process.env.HOST = "127.0.0.1";
-
-  const probe = net.createServer();
-  await new Promise((resolve, reject) =>
-    probe.once("error", reject).listen(port, "127.0.0.1", resolve),
-  );
-  await new Promise((resolve) => probe.close(resolve));
 
   run("node_modules/typescript/bin/tsc", ["--noEmit"]);
   run("node_modules/vite/bin/vite.js", ["build"]);
