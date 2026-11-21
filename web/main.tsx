@@ -19,6 +19,8 @@ import {
   useLoad,
   type User,
   type Row,
+  useSemesterId,
+  setSemesterId,
 } from "./shared";
 import "./style.css";
 const DEMO_PASSWORD = "CampusDemo2026!";
@@ -245,6 +247,30 @@ function CommandPalette({ items }: { items: [string, string][] }) {
     </>
   );
 }
+type SemesterOption = { id: number; code: string; name: string; starts_on: string; ends_on: string };
+function SemesterPicker() {
+  const semesterId = useSemesterId();
+  const { data } = useLoad<{ semesters: SemesterOption[]; current: number | null }>("/operations/semesters");
+  useEffect(() => {
+    if (!data?.semesters.length) return;
+    const selected = data.semesters.some((s) => String(s.id) === semesterId)
+      ? semesterId
+      : String(data.current ?? data.semesters[0].id);
+    if (selected !== semesterId) setSemesterId(selected);
+  }, [data, semesterId]);
+  if (!data?.semesters.length) return null;
+  const selected = semesterId || String(data.current ?? data.semesters[0].id);
+  return (
+    <label className="semester-picker">
+      <span>Semester</span>
+      <select aria-label="Choose semester" value={selected} onChange={(event) => setSemesterId(event.target.value)}>
+        {data.semesters.map((semester) => (
+          <option key={semester.id} value={semester.id}>{semester.name} · {semester.code}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 function Profile() {
   const [tick, setTick] = useState(0),
     [message, setMessage] = useState(""),
@@ -423,7 +449,10 @@ type Overview = {
   activity?: Row[];
 };
 function Dashboard({ user }: { user: User }) {
-  const { data, error } = useLoad<Overview>("/overview");
+  const semesterId = useSemesterId();
+  const { data, error } = useLoad<Overview>(
+    "/overview?semester=" + encodeURIComponent(semesterId),
+  );
   return (
     <>
       <h1>Workspace overview</h1>
@@ -578,6 +607,7 @@ function App() {
             Workspace / <b>{nav[path] || "Page"}</b>
           </span>
           <CommandPalette items={Object.entries(nav)} />
+          <SemesterPicker />
           <div>
             <strong>{user.name}</strong>
             <button

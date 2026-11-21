@@ -39,16 +39,31 @@ npm.cmd start
 
 `npm.cmd start` নিজে production build তৈরি করে এবং `4000` port ব্যস্ত থাকলে কাছের খালি port-এ চালু হয়; terminal-এ দেখানো URL খুলুন। `.env`-এ `APP_ORIGIN` না থাকলে server চালু হওয়া URL-টি নিজে সেট করে, যাতে login request আটকে না যায়।
 
-`db:setup` একবারে `db/schema.sql` ও `db/seed.sql` চালায়। আলাদা করে schema বসাতে `npm.cmd run db:migrate`, শুধু demo data বসাতে `npm.cmd run db:seed` ব্যবহার করুন। Vite development server ও API একসঙ্গে চালাতে `npm.cmd run dev` চালান; `.env`-এ `APP_ORIGIN=http://localhost:5173` দিন, তারপর **http://localhost:5173** খুলুন।
+`db:setup` একবারে base schema/seed এবং semester portal-এর additive update চালায়। Base schema আগে থেকে setup করা database-এ নতুন semester portal update দিতে চালান:
+
+```powershell
+npm.cmd run db:semester:setup
+```
+
+Update-এর schema ও sample data আলাদা করেও চালানো যায়:
+
+```powershell
+npm.cmd run db:semester:schema
+npm.cmd run db:semester:seed
+```
+
+এই update বিদ্যমান database বা records reset করে না। Student, teacher, finance, library, thesis, support এবং career records semester অনুযায়ী দেখাতে global semester selector ব্যবহার করুন। CGPA cumulative থাকে; নির্বাচিত semester-এ GPA, registration, result, attendance, routine, invoice ও payment history দেখা যায়। Student payment request verify না হওয়া পর্যন্ত paid হিসেবে গণ্য হয়। Vite development server ও API একসঙ্গে চালাতে `npm.cmd run dev` চালান; `.env`-এ `APP_ORIGIN=http://localhost:5173` দিন, তারপর **http://localhost:5173** খুলুন।
 
 Rule-based academic estimates ও Academic Assistant default-এ চালু থাকে। বন্ধ করতে চাইলে `.env`-এ `ENABLE_PHASE4=false` দিন। Estimate কোনো official grade বা trained ML prediction নয়; তুলনাযোগ্য পুরোনো result অপর্যাপ্ত হলে estimate দেখায় না।
 
 ## SQL ফাইল
 
-- `db/schema.sql` — সব table, key, constraint ও view-এর একক schema file।
-- `db/seed.sql` — permission matrix, demo account, academic records, routine, finance, library, notice, thesis ও student self-service workflow data-সহ একক seed file। এটি আবার চালালেও নতুন portal fixture duplicate করে না।
+- `db/schema.sql` — base table, key, constraint ও view-এর schema file।
+- `db/seed.sql` — demo account, academic records, routine, finance, library, notice ও thesis-এর base seed।
+- `db/updates/2026-semester-portal-schema.sql` — semester workflow columns ও student payment verification table-এর repeat-safe additive schema।
+- `db/seeds/2026-semester-portal.sql` — semester portal demo requests এবং pending fee payment-এর idempotent seed।
 
-Workbench দিয়ে হাতে import করলে আগে `schema.sql`, পরে `seed.sql` execute করুন। `seed.sql`-এ procedure আছে, তাই Workbench-এর SQL script execution ব্যবহার করুন। Recommended উপায় হলো project directory থেকে `npm.cmd run db:setup`; এটি procedure delimiter ঠিকভাবে সামলায়।
+Workbench দিয়ে হাতে import করলে আগে `schema.sql`, `updates/2026-semester-portal-schema.sql`, পরে `seed.sql` ও `seeds/2026-semester-portal.sql` execute করুন। SQL seed file-এ procedure আছে, তাই Workbench-এর SQL script execution ব্যবহার করুন। Recommended উপায় হলো project directory থেকে `npm.cmd run db:setup`; এটি procedure delimiter ঠিকভাবে সামলায়।
 
 ## Demo account
 

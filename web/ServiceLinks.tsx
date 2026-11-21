@@ -1,4 +1,4 @@
-import { useLoad, Status, type User } from "./shared";
+import { useLoad, useSemesterId, Status, type User } from "./shared";
 const catalog: Record<string, [string, string][]> = {
   STUDENT: [
     ["Analytics", "Academic progress, alerts & assistant"],
@@ -57,7 +57,10 @@ type Summary = {
   groups: Record<string, { tables: Grid[] }>;
 };
 export function RoleOverview({ user }: { user: User }) {
-  const { data, error } = useLoad<Summary>("/operations");
+  const semesterId = useSemesterId();
+  const { data, error } = useLoad<Summary>(
+    "/operations?semester=" + encodeURIComponent(semesterId),
+  );
   if (!data) return <Status error={error} />;
   const lookup = (group: string, title: string) =>
     data.groups[group]?.tables.find((t) => t.title.startsWith(title))?.items ??

@@ -1,6 +1,32 @@
 import { useEffect, useState, type ReactNode } from "react";
 export type Row = Record<string, string | number | boolean>;
 export type User = { id: number; name: string; email: string; role: string };
+const semesterStorageKey = "campus.semester";
+export function getSemesterId() {
+  return window.localStorage.getItem(semesterStorageKey) ?? "";
+}
+export function setSemesterId(id: string) {
+  window.localStorage.setItem(semesterStorageKey, id);
+  window.dispatchEvent(new CustomEvent("semester-change", { detail: id }));
+}
+export function useSemesterId() {
+  const [id, setId] = useState(getSemesterId);
+  useEffect(() => {
+    const update = (event: Event) =>
+      setId(
+        event instanceof CustomEvent && typeof event.detail === "string"
+          ? event.detail
+          : getSemesterId(),
+      );
+    window.addEventListener("semester-change", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("semester-change", update);
+      window.removeEventListener("storage", update);
+    };
+  }, []);
+  return id;
+}
 export const models: Record<string, { title: string; fields: string[] }> = {
   departments: { title: "Departments", fields: [] },
   programs: { title: "Programs", fields: ["department_id", "credits"] },

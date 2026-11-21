@@ -76,14 +76,14 @@ export async function records(db, user) {
   const bills =
     finance || student
       ? await read(
-          `SELECT i.*,(SELECT issued FROM invoice_details di WHERE di.invoice=i.id) issued,(SELECT term FROM invoice_details di WHERE di.invoice=i.id) term,u.name student_name,i.amount-COALESCE(SUM(CASE WHEN COALESCE(rd.state,'Valid')='Valid' THEN p.amount ELSE 0 END),0) balance FROM invoices i JOIN users u ON u.id=i.student LEFT JOIN receipts p ON p.invoice=i.id LEFT JOIN receipt_details rd ON rd.receipt=p.id ${student ? "WHERE i.student=?" : ""} GROUP BY i.id,u.name`,
+          `SELECT i.*,(SELECT issued FROM invoice_details di WHERE di.invoice=i.id) issued,(SELECT term FROM invoice_details di WHERE di.invoice=i.id) term,sem.code semester,u.name student_name,i.amount-COALESCE(SUM(CASE WHEN COALESCE(rd.state,'Valid')='Valid' THEN p.amount ELSE 0 END),0) balance FROM invoices i JOIN users u ON u.id=i.student LEFT JOIN invoice_details idt ON idt.invoice=i.id LEFT JOIN semesters sem ON sem.id=idt.term LEFT JOIN receipts p ON p.invoice=i.id LEFT JOIN receipt_details rd ON rd.receipt=p.id ${student ? "WHERE i.student=?" : ""} GROUP BY i.id,u.name,sem.code`,
           student ? [id] : [],
         )
       : [];
   const payments =
     finance || student
       ? await read(
-          `SELECT p.*,COALESCE(rd.state,'Valid') state,rd.method,i.label,u.name student_name FROM receipts p LEFT JOIN receipt_details rd ON rd.receipt=p.id JOIN invoices i ON i.id=p.invoice JOIN users u ON u.id=i.student ${student ? "WHERE i.student=?" : ""} ORDER BY p.id DESC`,
+          `SELECT p.*,COALESCE(rd.state,'Valid') state,rd.method,i.label,u.name student_name,idt.term term_id,sem.code semester FROM receipts p LEFT JOIN receipt_details rd ON rd.receipt=p.id JOIN invoices i ON i.id=p.invoice LEFT JOIN invoice_details idt ON idt.invoice=i.id LEFT JOIN semesters sem ON sem.id=idt.term JOIN users u ON u.id=i.student ${student ? "WHERE i.student=?" : ""} ORDER BY p.id DESC`,
           student ? [id] : [],
         )
       : [];
@@ -93,7 +93,7 @@ export async function records(db, user) {
   const loans =
     library || student
       ? await read(
-          `SELECT l.*,b.title,u.name borrower,lc.copy_id,bc.accession,CASE WHEN l.returned IS NULL THEN 'On loan' ELSE CAST(l.returned AS CHAR) END loan_status,CASE WHEN l.returned IS NULL THEN GREATEST(DATEDIFF(CAST(? AS DATE),l.due),0)*COALESCE((SELECT pr.fine_rate FROM students st JOIN program_rules pr ON pr.program=st.program_id WHERE st.user_id=l.student),5) ELSE l.fine END fine_bdt FROM loans l LEFT JOIN loan_copies lc ON lc.loan=l.id LEFT JOIN book_copies bc ON bc.id=lc.copy_id JOIN books b ON b.id=l.book JOIN users u ON u.id=l.student ${student ? "WHERE l.student=?" : ""} ORDER BY l.id DESC`,
+          `SELECT l.*,sem.code semester,b.title,u.name borrower,lc.copy_id,bc.accession,CASE WHEN l.returned IS NULL THEN 'On loan' ELSE CAST(l.returned AS CHAR) END loan_status,CASE WHEN l.returned IS NULL THEN GREATEST(DATEDIFF(CAST(? AS DATE),l.due),0)*COALESCE((SELECT pr.fine_rate FROM students st JOIN program_rules pr ON pr.program=st.program_id WHERE st.user_id=l.student),5) ELSE l.fine END fine_bdt FROM loans l LEFT JOIN semesters sem ON sem.id=l.semester_id LEFT JOIN loan_copies lc ON lc.loan=l.id LEFT JOIN book_copies bc ON bc.id=lc.copy_id JOIN books b ON b.id=l.book JOIN users u ON u.id=l.student ${student ? "WHERE l.student=?" : ""} ORDER BY l.id DESC`,
           student ? [today(), id] : [today()],
         )
       : [];
@@ -104,7 +104,7 @@ export async function records(db, user) {
   const theses =
     admin || student || supervisor
       ? await read(
-          `SELECT t.*,u.name student_name,v.name supervisor_name FROM theses t JOIN users u ON u.id=t.student LEFT JOIN users v ON v.id=t.supervisor WHERE ${admin ? "1=1" : student ? "t.student=?" : "t.supervisor=?"}`,
+          `SELECT t.*,sem.code semester,u.name student_name,v.name supervisor_name FROM theses t JOIN users u ON u.id=t.student LEFT JOIN users v ON v.id=t.supervisor LEFT JOIN semesters sem ON sem.id=t.semester_id WHERE ${admin ? "1=1" : student ? "t.student=?" : "t.supervisor=?"}`,
           admin ? [] : [id],
         )
       : [];
@@ -125,7 +125,9 @@ export async function records(db, user) {
   const catalog = {};
   for (const table of ["departments", "programs", "courses", "semesters"])
     catalog[table] = await read(
-      "SELECT id,code,name,active FROM " + table + " ORDER BY code",
+      table === "semesters"
+        ? "SELECT id,code,name,active,starts_on,ends_on FROM semesters ORDER BY starts_on DESC,id DESC"
+        : "SELECT id,code,name,active FROM " + table + " ORDER BY code",
     );
   const rooms = admin
     ? await read(
@@ -142,7 +144,7 @@ export async function records(db, user) {
   const attendance =
     admin || student || teacher || advisor
       ? await read(
-          `SELECT a.reg,a.day,a.present,COALESCE(ast.status,CASE WHEN a.present=1 THEN 'Present' ELSE 'Absent' END) mark_status,cs.status session_status,c.code,u.name student_name FROM attendance a LEFT JOIN attendance_status ast ON ast.reg=a.reg AND ast.day=a.day JOIN registrations r ON r.id=a.reg JOIN class_sessions cs ON cs.offering=r.offering AND cs.day=a.day JOIN users u ON u.id=r.student JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course WHERE ${admin ? "1=1" : teacher ? "o.teacher=?" : student ? "r.student=?" : "EXISTS(SELECT 1 FROM advising v WHERE v.student=r.student AND v.advisor=?)"} ORDER BY a.day DESC`,
+          `SELECT a.reg,a.day,a.present,o.term term_id,t.code semester,COALESCE(ast.status,CASE WHEN a.present=1 THEN 'Present' ELSE 'Absent' END) mark_status,cs.status session_status,c.code,u.name student_name FROM attendance a LEFT JOIN attendance_status ast ON ast.reg=a.reg AND ast.day=a.day JOIN registrations r ON r.id=a.reg JOIN class_sessions cs ON cs.offering=r.offering AND cs.day=a.day JOIN users u ON u.id=r.student JOIN offerings o ON o.id=r.offering JOIN semesters t ON t.id=o.term JOIN courses c ON c.id=o.course WHERE ${admin ? "1=1" : teacher ? "o.teacher=?" : student ? "r.student=?" : "EXISTS(SELECT 1 FROM advising v WHERE v.student=r.student AND v.advisor=?)"} ORDER BY a.day DESC`,
           admin ? [] : [id],
         )
       : [];

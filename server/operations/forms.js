@@ -117,6 +117,18 @@ export const actions = {
     "ACCOUNTS_OFFICER ADMIN",
     "invoice:outstanding kind:receipts amount:money reference method:optional reason:optional",
   ),
+  request_payment: form(
+    "Finance",
+    "Submit a fee payment for verification",
+    "STUDENT",
+    "invoice:payableInvoices amount:money method:paymentMethods reference reason:optional",
+  ),
+  payment_request_review: form(
+    "Finance",
+    "Verify student payment",
+    "ACCOUNTS_OFFICER ADMIN",
+    "request:pendingPaymentRequests decision:decisions review_reason:optional",
+  ),
   notice: form(
     "Notices",
     "Publish notice",
@@ -182,7 +194,7 @@ export const actions = {
     "thesis:activeTheses status:milestones note:long",
   ),
 };
-export function options(d, studentUsers = [], u = {}) {
+export function options(d, studentUsers = [], u = {}, semesterId = null) {
   const pick = (arr, label) => arr.map((r) => ({ id: r.id, label: label(r) }));
   const choices = (arr) => arr.map((v) => ({ id: v, label: v }));
   const name = (r) => r.name,
@@ -203,14 +215,16 @@ export function options(d, studentUsers = [], u = {}) {
   );
   return {
     ...catalog,
-    ...extraOptions(d, u),
+    ...extraOptions(d, u, semesterId),
     accounts: pick(
       [...studentUsers, ...d.staff].filter((r) => r.id !== u.id),
       (r) => r.name + " · " + (r.active ? "Active" : "Inactive"),
     ),
     access: choices(["Active", "Inactive"]),
     ownedSections: pick(
-      d.offerings.filter((o) => u.role === "ADMIN" || o.teacher === u.id),
+      d.offerings.filter(
+        (o) => (u.role === "ADMIN" || o.teacher === u.id) && (!semesterId || Number(o.term) === Number(semesterId)),
+      ),
       offer,
     ),
     feeTypes: pick(d.feeTypes, (r) => r.label + " · BDT " + r.amount),
@@ -251,6 +265,7 @@ export function options(d, studentUsers = [], u = {}) {
     eligible: pick(
       d.offerings.filter(
         (o) =>
+          (!semesterId || Number(o.term) === Number(semesterId)) &&
           d.people[0] &&
           eligible(d.people[0], o, d.regs, d.requirements) &&
           today() >= o.opens_on &&
@@ -260,29 +275,30 @@ export function options(d, studentUsers = [], u = {}) {
       offer,
     ),
     pending: pick(
-      d.regs.filter((r) => r.status === "Pending"),
+      d.regs.filter((r) => r.status === "Pending" && (!semesterId || Number(r.term) === Number(semesterId))),
       reg,
     ),
     droppable: pick(
       d.regs.filter(
         (r) =>
           ["Pending", "Approved"].includes(r.status) &&
+          (!semesterId || Number(r.term) === Number(semesterId)) &&
           !r.published &&
           today() <= d.offerings.find((o) => o.id === r.offering).drop_on,
       ),
       reg,
     ),
-    enrolled: pick(d.regs.filter(live), reg),
+    enrolled: pick(d.regs.filter((r) => live(r) && (!semesterId || Number(r.term) === Number(semesterId))), reg),
     unlocked: pick(
-      d.regs.filter((r) => live(r) && !r.published),
+      d.regs.filter((r) => live(r) && !r.published && (!semesterId || Number(r.term) === Number(semesterId))),
       reg,
     ),
     drafts: pick(
-      d.regs.filter((r) => live(r) && r.assessment != null && !r.published),
+      d.regs.filter((r) => live(r) && r.assessment != null && !r.published && (!semesterId || Number(r.term) === Number(semesterId))),
       reg,
     ),
     outstanding: pick(
-      d.bills.filter((r) => Number(r.balance) > 0),
+      d.bills.filter((r) => Number(r.balance) > 0 && (!semesterId || Number(r.term) === Number(semesterId))),
       (r) => r.student_name + " · " + r.label + " · BDT " + r.balance,
     ),
     receipts: choices(["Payment", "Waiver"]),

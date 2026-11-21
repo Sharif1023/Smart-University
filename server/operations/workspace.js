@@ -108,7 +108,76 @@ async function insights(db, u, d) {
     }
   return { summaries, forecasts, recommendations, terms };
 }
-function view(u, d, i, list) {
+function resolveSemester(semesters, requested) {
+  const id = Number(requested);
+  const current =
+    semesters.find((s) => s.starts_on <= today() && s.ends_on >= today()) ??
+    semesters.find((s) => s.active) ??
+    semesters[0];
+  return (Number.isInteger(id) && semesters.find((s) => s.id === id)) || current;
+}
+function forSemester(data, semester) {
+  const termId = Number(semester.id),
+    hasTerm = (row) => Number(row.term_id ?? row.term ?? row.semester_id) === termId,
+    offerings = data.offerings.filter((o) => Number(o.term) === termId),
+    offeringIds = new Set(offerings.map((o) => o.id)),
+    regs = data.regs.filter((r) => Number(r.term) === termId),
+    regIds = new Set(regs.map((r) => r.id)),
+    bills = data.bills.filter((b) => Number(b.term) === termId),
+    billIds = new Set(bills.map((b) => b.id)),
+    theses = data.theses.filter(hasTerm),
+    thesisIds = new Set(theses.map((t) => t.id)),
+    loans = data.loans.filter(hasTerm),
+    loanIds = new Set(loans.map((l) => l.id)),
+    tickets = data.extra.tickets.filter(hasTerm),
+    ticketIds = new Set(tickets.map((t) => t.id));
+  const extra = {
+    ...data.extra,
+    assessments: data.extra.assessments.filter(hasTerm),
+    sessions: data.extra.sessions.filter(hasTerm),
+    publications: data.extra.publications.filter((x) => regIds.has(x.reg)),
+    marks: data.extra.marks.filter((x) => regIds.has(x.reg)),
+    items: data.extra.items.filter((x) => billIds.has(x.invoice)),
+    feedback: data.extra.feedback.filter((x) => thesisIds.has(x.thesis)),
+    vivas: data.extra.vivas.filter((x) => thesisIds.has(x.thesis)),
+    notes: data.extra.notes.filter((x) => regIds.has(x.reg)),
+    regHistory: data.extra.regHistory.filter((x) => regIds.has(x.reg)),
+    thesisHistory: data.extra.thesisHistory.filter((x) => thesisIds.has(x.thesis)),
+    supervision: data.extra.supervision.filter((x) => thesisIds.has(x.thesis)),
+    fineEvents: data.extra.fineEvents.filter((x) => loanIds.has(x.loan)),
+    examSchedules: data.extra.examSchedules.filter(hasTerm),
+    corrections: data.extra.corrections.filter(hasTerm),
+    gradeReviews: data.extra.gradeReviews.filter(hasTerm),
+    documentRequests: data.extra.documentRequests.filter(hasTerm),
+    tickets,
+    replies: data.extra.replies.filter((x) => ticketIds.has(x.ticket)),
+    reservations: data.extra.reservations.filter(hasTerm),
+    renewals: data.extra.renewals.filter(hasTerm),
+    applications: data.extra.applications.filter(hasTerm),
+    paymentRequests: data.extra.paymentRequests.filter(hasTerm),
+    reviews: data.extra.reviews.filter(hasTerm),
+    conflicts: data.extra.conflicts.filter(hasTerm),
+    history: data.extra.history.filter((x) => x.effective >= semester.starts_on && x.effective <= semester.ends_on),
+  };
+  return {
+    ...data,
+    offerings,
+    regs,
+    bills,
+    payments: data.payments.filter(hasTerm),
+    notices: data.notices.filter((n) => n.audience !== "Semester" || Number(n.target) === termId),
+    routine: data.routine.filter((r) => offeringIds.has(r.offering)),
+    materials: data.materials.filter((r) => offeringIds.has(r.offering)),
+    attendance: data.attendance.filter((r) => regIds.has(r.reg)),
+    loans,
+    theses,
+    updates: data.updates.filter((r) => thesisIds.has(r.thesis)),
+    feeTypes: data.feeTypes.filter((r) => !r.term || Number(r.term) === termId),
+    extra,
+  };
+}
+function view(u, allData, i, list, semester) {
+  const d = forSemester(allData, semester);
   const groups = {},
     sec = (name, ...tables) => {
       groups[name] = { tables, forms: [] };
@@ -180,7 +249,7 @@ function view(u, d, i, list) {
       table("Course materials", "code title url", d.materials),
       table(
         "Attendance register",
-        "student_name code day status session_status",
+        "student_name code semester day status session_status",
         d.attendance.map((a) => ({
           ...a,
           status: a.mark_status,
@@ -202,7 +271,7 @@ function view(u, d, i, list) {
         : []),
       table(
         "Invoices · BDT",
-        "student_name label term issued amount balance due status",
+        "student_name label semester issued amount balance due status",
         d.bills.map((b) => ({
           ...b,
           status:
@@ -215,7 +284,7 @@ function view(u, d, i, list) {
       ),
       table(
         "Payments and waivers · BDT",
-        "student_name label kind amount reference method state recorded",
+        "student_name semester label kind amount reference method state recorded",
         d.payments,
       ),
     );
@@ -238,7 +307,7 @@ function view(u, d, i, list) {
       ? [
           table(
             "Borrowing history",
-            "borrower title accession issued due loan_status fine_bdt",
+            "borrower title semester accession issued due loan_status fine_bdt",
             d.loans,
           ),
         ]
@@ -269,7 +338,7 @@ function view(u, d, i, list) {
       "Thesis",
       table(
         "Thesis projects",
-        "student_name title proposal supervisor_name status",
+        "student_name semester title proposal supervisor_name status",
         d.theses,
       ),
       table(
@@ -287,7 +356,7 @@ function view(u, d, i, list) {
             "student cgpa attempted earned remaining advisor",
             i.summaries,
           ),
-          table("GPA by semester", "student semester gpa", i.terms),
+          table("GPA by semester", "student semester gpa", i.terms.filter((t) => t.semester === semester.code)),
         ]
       : []),
     ...(phase4() && (admin || advisor || student)
@@ -300,7 +369,7 @@ function view(u, d, i, list) {
           table(
             "Recommended sections",
             "student course semester section credits seats reason",
-            i.recommendations,
+            i.recommendations.filter((r) => r.semester === semester.code),
           ),
         ]
       : []),
@@ -365,7 +434,7 @@ function view(u, d, i, list) {
     d.notices.filter((n) => n.read_status === "Unread").length,
   );
   addTables(groups, table, d, u);
-  const lists = options(d, list, u);
+  const lists = options(allData, list, u, semester.id);
   for (const [key, s] of Object.entries(actions))
     if (
       groups[s.section] &&
@@ -382,20 +451,44 @@ function view(u, d, i, list) {
             key === "notification_preferences" &&
             ["academic", "finance", "library", "thesis", "notices"].includes(f.key)
               ? (d.extra.preferences[f.key] ? "On" : "Off")
-              : undefined,
+              : f.key === "term"
+                ? String(semester.id)
+                : undefined,
         })),
       });
-  return { groups, metrics, settings: d.extra.settings, phase4: phase4(), role: u.role };
+  return {
+    groups,
+    metrics,
+    settings: d.extra.settings,
+    phase4: phase4(),
+    role: u.role,
+    semester,
+    semesterStats: {
+      courses: d.offerings.length,
+      registrations: d.regs.length,
+      invoices: d.bills.length,
+      balance: d.bills.reduce((sum, bill) => sum + Number(bill.balance), 0),
+    },
+  };
 }
 export const operations = Router();
+operations.get("/semesters", async (_req, res) => {
+  const semesters = await rows(
+    pool,
+    "SELECT id,code,name,starts_on,ends_on,active FROM semesters ORDER BY starts_on DESC,id DESC",
+  );
+  res.json({ data: { semesters, current: resolveSemester(semesters, "")?.id ?? null } });
+});
 operations.get("/", async (req, res) => {
   const d = await records(pool, req.user);
+  const semester = resolveSemester(d.catalog.semesters, req.query.semester);
   res.json({
     data: view(
       req.user,
       d,
       await insights(pool, req.user, d),
       await staffList(pool, req.user),
+      semester,
     ),
   });
 });
@@ -415,11 +508,13 @@ operations.get("/list/:section/:table", async (req, res) => {
       "Use a positive page number and page size from 1 to 100.",
     );
   const d = await records(pool, req.user),
+    semester = resolveSemester(d.catalog.semesters, req.query.semester),
     w = view(
       req.user,
       d,
       await insights(pool, req.user, d),
       await staffList(pool, req.user),
+      semester,
     );
   const g = w.groups[req.params.section]?.tables?.find(
     (t) => t.title === req.params.table,
@@ -459,6 +554,7 @@ operations.post("/action/:key", async (req, res) => {
     await transaction(async (db) => {
       await db.query("SELECT id FROM workflow_lock WHERE id=1 FOR UPDATE");
       const d = await records(db, req.user);
+      const semester = resolveSemester(d.catalog.semesters, req.body?._semester);
       await mutate(
         db,
         req.user,
@@ -467,6 +563,7 @@ operations.post("/action/:key", async (req, res) => {
         req.params.key,
         req.body,
         req.requestId,
+        semester.id,
       );
     });
   } catch (error) {
@@ -516,9 +613,11 @@ operations.post("/ask", async (req, res) => {
       .trim()
       .toLowerCase()
       .slice(0, 400),
-    d = await records(pool, req.user),
-    i = await insights(pool, req.user, d),
-    ui = view(req.user, d, i, []),
+    all = await records(pool, req.user),
+    semester = resolveSemester(all.catalog.semesters, req.body?._semester),
+    d = forSemester(all, semester),
+    i = await insights(pool, req.user, all),
+    ui = view(req.user, all, i, [], semester),
     summary = i.summaries[0],
     personal = req.user.role === "STUDENT";
   const lines = (items, fn) =>

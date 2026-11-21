@@ -12,6 +12,7 @@ export async function mutate(
   key,
   body,
   requestId = null,
+  semesterId = null,
 ) {
   const spec = Object.hasOwn(actions, key) && actions[key];
   if (
@@ -20,7 +21,7 @@ export async function mutate(
     !spec.roles.some((r) => r === "*" || r === u.role)
   )
     fail(403, "FORBIDDEN", "This action is unavailable for your role.");
-  const lists = options(d, studentUsers, u),
+  const lists = options(d, studentUsers, u, semesterId),
     b = {};
   for (const { key: f, type } of spec.fields) {
     let value = body?.[f];
@@ -167,7 +168,7 @@ export async function mutate(
     );
     if (clash.length) reject("This section conflicts with your timetable.");
   }
-  if (!(await runExtra(db, u, d, key, b)))
+  if (!(await runExtra(db, u, d, key, b, semesterId)))
     switch (key) {
       case "user":
         await run(

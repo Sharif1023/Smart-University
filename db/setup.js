@@ -32,6 +32,11 @@ try {
     console.log("Applying db/schema.sql …");
     await runSqlFile(connection, new URL("./schema.sql", import.meta.url));
   }
+  console.log("Applying the semester portal schema update …");
+  await runSqlFile(
+    connection,
+    new URL("./updates/2026-semester-portal-schema.sql", import.meta.url),
+  );
   if (!schemaOnly) {
     if (demoPasswordHash)
       await connection.execute("SET @campus_demo_password_hash=?", [
@@ -39,6 +44,11 @@ try {
       ]);
     console.log("Applying db/seed.sql …");
     await runSqlFile(connection, new URL("./seed.sql", import.meta.url));
+    console.log("Applying the semester portal demo seed …");
+    await runSqlFile(
+      connection,
+      new URL("./seeds/2026-semester-portal.sql", import.meta.url),
+    );
   }
   console.log(
     schemaOnly

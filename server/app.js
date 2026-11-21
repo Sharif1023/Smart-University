@@ -230,18 +230,28 @@ api.put("/profile", async (req, res) => {
   res.json({ data: { updated: true } });
 });
 api.get("/overview", async (req, res) => {
-  const [[term]] = await pool.query(
-    "SELECT name,starts_on,ends_on FROM semesters WHERE active=1 AND starts_on <= CURRENT_DATE AND ends_on >= CURRENT_DATE ORDER BY starts_on DESC LIMIT 1",
+  const [terms] = await pool.query(
+    "SELECT id,name,starts_on,ends_on,active FROM semesters ORDER BY starts_on DESC,id DESC",
   );
+  const today = new Date(Date.now() + 6 * 3600000).toISOString().slice(0, 10);
+  const current =
+      terms.find((t) => t.starts_on <= today && t.ends_on >= today) ??
+      terms.find((t) => t.active) ??
+      terms[0],
+    requested = Number(req.query.semester),
+    term = (Number.isInteger(requested) && terms.find((t) => t.id === requested)) || current;
+  const termInfo = term
+    ? { name: term.name, starts_on: term.starts_on, ends_on: term.ends_on }
+    : null;
   if (req.user.role !== "ADMIN")
-    return res.json({ data: { term: term || null } });
+    return res.json({ data: { term: termInfo } });
   const [[counts]] = await pool.query(
     "SELECT (SELECT COUNT(*) FROM departments WHERE active=1) AS departments,(SELECT COUNT(*) FROM programs WHERE active=1) AS programs,(SELECT COUNT(*) FROM courses WHERE active=1) AS courses",
   );
   const [activity] = await pool.query(
     "SELECT a.id,a.action,a.resource,a.record_id,a.created_at,u.name FROM audit_logs a JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 8",
   );
-  res.json({ data: { term: term || null, counts, activity } });
+  res.json({ data: { term: termInfo, counts, activity } });
 });
 api.use(personal);
 api.use("/operations", operations);

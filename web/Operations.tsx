@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, useLoad, Status } from "./shared";
+import { api, useLoad, useSemesterId, Status } from "./shared";
 type Opt = { id: string | number; label: string };
 type Field = { key: string; type: string; choices?: Opt[]; defaultValue?: string };
 type Action = { key: string; title: string; fields: Field[] };
@@ -19,6 +19,8 @@ type Workspace = {
   };
   groups: Record<string, Group>;
   metrics: { label: string; value: string | number }[];
+  semester: { id: number; code: string; name: string; starts_on: string; ends_on: string };
+  semesterStats: { courses: number; registrations: number; invoices: number; balance: number };
 };
 function WhatIfGpa({ current, attempted }: { current: number | null; attempted: number }) {
   const [credits, setCredits] = useState("3"),
@@ -87,6 +89,11 @@ const labels: Record<string, string> = {
   kind: "Type",
   title: "Title",
   id: "ID",
+  method: "Payment method",
+  invoice: "Semester invoice",
+  semester: "Semester",
+  semester_id: "Semester",
+  reason: "Reason or note",
 };
 const label = (s: string) =>
   labels[s] || s.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
@@ -101,6 +108,7 @@ function Form({ action, saved }: { action: Action; saved: () => void }) {
     if (
       [
         "void_receipt",
+        "payment_request_review",
         "publish",
         "release",
         "change_role",
@@ -116,6 +124,7 @@ function Form({ action, saved }: { action: Action; saved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
+      body._semester = window.localStorage.getItem("campus.semester") ?? "";
       for (const f of action.fields) {
         const v = fd.get(f.key);
         if (v instanceof File) {
@@ -454,7 +463,11 @@ export default function Operations({
     [q, setQ] = useState(""),
     [answer, setAnswer] = useState(""),
     [asking, setAsking] = useState(false);
-  const { data, error } = useLoad<Workspace>("/operations", tick);
+  const semesterId = useSemesterId();
+  const { data, error } = useLoad<Workspace>(
+    "/operations?semester=" + encodeURIComponent(semesterId),
+    tick,
+  );
   useEffect(() => {
     setSuccess("");
   }, [active]);
@@ -471,6 +484,18 @@ export default function Operations({
   return (
     <>
       <h1>Campus services</h1>
+      <section className="semester-summary" aria-label="Selected semester">
+        <div>
+          <span>Semester workspace</span>
+          <strong>{data.semester.name}</strong>
+          <small>{data.semester.code} · {data.semester.starts_on} — {data.semester.ends_on}</small>
+        </div>
+        <div className="semester-summary-stats">
+          <span><b>{data.semesterStats.courses}</b> sections</span>
+          <span><b>{data.semesterStats.registrations}</b> registrations</span>
+          {data.role === "STUDENT" && <span><b>{data.settings.currency_code} {Number(data.semesterStats.balance).toLocaleString()}</b> due this semester</span>}
+        </div>
+      </section>
       <div className="op-tabs">
         {[
           ...Object.keys(data.groups),
@@ -520,7 +545,7 @@ export default function Operations({
             setAsking(true);
             try {
               setAnswer(
-                (await api<string>("/operations/ask", "POST", { question: q }))
+                (await api<string>("/operations/ask", "POST", { question: q, _semester: semesterId }))
                   .data,
               );
             } catch (err) {
@@ -548,6 +573,9 @@ export default function Operations({
         </form>
       ) : group ? (
         <>
+          {active === "Finance" && data.role === "STUDENT" && (
+            <p className="semester-help">After paying through your bank or mobile wallet, submit the payment method and transaction reference here. Accounts verifies the request before it appears as paid.</p>
+          )}
           {active === "Teaching" && data.role === "STUDENT" && <TranscriptDownload />}
           {group.forms.map((a) => (
             <Form

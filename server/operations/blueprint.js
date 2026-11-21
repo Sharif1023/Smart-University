@@ -329,14 +329,14 @@ export async function supplement(db, d, u) {
       "SELECT c.*,b.title,ed.isbn,ed.category,ed.edition,ed.publisher,ed.published_year,(c.condition_label NOT IN ('Lost','Repair') AND NOT EXISTS(SELECT 1 FROM loan_copies lc JOIN loans l ON l.id=lc.loan WHERE lc.copy_id=c.id AND l.returned IS NULL)) available FROM book_copies c JOIN books b ON b.id=c.book LEFT JOIN book_editions ed ON ed.book=b.id",
     ),
     assessments: await by(
-      "SELECT a.*,c.code FROM assessments a JOIN offerings o ON o.id=a.offering JOIN courses c ON c.id=o.course",
+      "SELECT a.*,c.code,o.term term_id FROM assessments a JOIN offerings o ON o.id=a.offering JOIN courses c ON c.id=o.course",
       "a.offering",
       u.role === "STUDENT"
         ? d.regs.filter((r) => r.status === "Approved").map((r) => r.offering)
         : own,
     ),
     sessions: await by(
-      "SELECT s.*,c.code FROM class_sessions s JOIN offerings o ON o.id=s.offering JOIN courses c ON c.id=o.course",
+      "SELECT s.*,c.code,o.term term_id FROM class_sessions s JOIN offerings o ON o.id=s.offering JOIN courses c ON c.id=o.course",
       "s.offering",
       admin || u.role === "TEACHER"
         ? own
@@ -384,31 +384,31 @@ export async function supplement(db, d, u) {
       d.loans.map((l) => l.id),
     ),
     examSchedules: await read(
-      `SELECT x.*,o.section,c.code,c.name course_name,t.code semester,rm.name room_name FROM exam_schedules x JOIN offerings o ON o.id=x.offering JOIN courses c ON c.id=o.course JOIN semesters t ON t.id=o.term JOIN rooms rm ON rm.id=x.room WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "x.state='Published' AND EXISTS(SELECT 1 FROM registrations r WHERE r.offering=x.offering AND r.student=? AND r.status='Approved')" : u.role === "TEACHER" ? "o.teacher=?" : "x.state='Published'"} ORDER BY x.exam_date,x.starts_at`,
+      `SELECT x.*,o.section,o.term term_id,c.code,c.name course_name,t.code semester,rm.name room_name FROM exam_schedules x JOIN offerings o ON o.id=x.offering JOIN courses c ON c.id=o.course JOIN semesters t ON t.id=o.term JOIN rooms rm ON rm.id=x.room WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "x.state='Published' AND EXISTS(SELECT 1 FROM registrations r WHERE r.offering=x.offering AND r.student=? AND r.status='Approved')" : u.role === "TEACHER" ? "o.teacher=?" : "x.state='Published'"} ORDER BY x.exam_date,x.starts_at`,
       ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
     ),
     corrections: await read(
-      `SELECT a.*,c.code,o.teacher,o.section,u.name student_name FROM attendance_correction_requests a JOIN registrations r ON r.id=a.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN students s ON s.user_id=a.student JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "a.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY a.created_at DESC`,
+      `SELECT a.*,c.code,o.term term_id,o.teacher,o.section,u.name student_name FROM attendance_correction_requests a JOIN registrations r ON r.id=a.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN students s ON s.user_id=a.student JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "a.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY a.created_at DESC`,
       ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
     ),
     gradeReviews: await read(
-      `SELECT g.*,c.code,o.teacher,u.name student_name FROM grade_review_requests g JOIN registrations r ON r.id=g.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN users u ON u.id=g.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "g.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY g.created_at DESC`,
+      `SELECT g.*,c.code,o.term term_id,o.teacher,u.name student_name FROM grade_review_requests g JOIN registrations r ON r.id=g.reg JOIN offerings o ON o.id=r.offering JOIN courses c ON c.id=o.course JOIN users u ON u.id=g.student WHERE ${admin ? "1=1" : u.role === "STUDENT" ? "g.student=?" : u.role === "TEACHER" ? "o.teacher=?" : "1=0"} ORDER BY g.created_at DESC`,
       ["STUDENT", "TEACHER"].includes(u.role) ? [u.id] : [],
     ),
     documentRequests: await read(
-      `SELECT a.*,u.name student_name FROM student_document_requests a JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.requested_at DESC`,
+      `SELECT a.*,sem.code semester,u.name student_name FROM student_document_requests a JOIN users u ON u.id=a.student LEFT JOIN semesters sem ON sem.id=a.semester_id WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.requested_at DESC`,
       admin ? [] : [u.id],
     ),
     tickets: await read(
-      `SELECT a.*,u.name student_name,(SELECT COUNT(*) FROM support_replies r WHERE r.ticket=a.id) reply_count FROM support_tickets a JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.updated_at DESC`,
+      `SELECT a.*,sem.code semester,u.name student_name,(SELECT COUNT(*) FROM support_replies r WHERE r.ticket=a.id) reply_count FROM support_tickets a JOIN users u ON u.id=a.student LEFT JOIN semesters sem ON sem.id=a.semester_id WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.updated_at DESC`,
       admin ? [] : [u.id],
     ),
     reservations: await read(
-      `SELECT r.*,b.title,u.name student_name FROM library_reservations r JOIN books b ON b.id=r.book JOIN users u ON u.id=r.student WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
+      `SELECT r.*,sem.code semester,b.title,u.name student_name FROM library_reservations r JOIN books b ON b.id=r.book JOIN users u ON u.id=r.student LEFT JOIN semesters sem ON sem.id=r.semester_id WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
       admin || u.role === "LIBRARIAN" ? [] : [u.id],
     ),
     renewals: await read(
-      `SELECT r.*,l.due current_due,b.title,u.name student_name FROM loan_renewal_requests r JOIN loans l ON l.id=r.loan JOIN books b ON b.id=l.book JOIN users u ON u.id=r.student WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
+      `SELECT r.*,sem.code semester,l.due current_due,b.title,u.name student_name FROM loan_renewal_requests r JOIN loans l ON l.id=r.loan JOIN books b ON b.id=l.book JOIN users u ON u.id=r.student LEFT JOIN semesters sem ON sem.id=r.semester_id WHERE ${admin || u.role === "LIBRARIAN" ? "1=1" : "r.student=?"} ORDER BY r.created_at DESC`,
       admin || u.role === "LIBRARIAN" ? [] : [u.id],
     ),
     preferences: (await read("SELECT * FROM notification_preferences WHERE user_id=?", [u.id]))[0] ?? { user_id: u.id, academic: 1, finance: 1, library: 1, thesis: 1, notices: 1 },
@@ -417,13 +417,22 @@ export async function supplement(db, d, u) {
       admin ? [] : [today()],
     ),
     applications: await read(
-      `SELECT a.*,o.title opportunity_title,o.organization,u.name student_name FROM career_applications a JOIN career_opportunities o ON o.id=a.opportunity JOIN users u ON u.id=a.student WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.submitted_at DESC`,
+      `SELECT a.*,sem.code semester,o.title opportunity_title,o.organization,u.name student_name FROM career_applications a JOIN career_opportunities o ON o.id=a.opportunity JOIN users u ON u.id=a.student LEFT JOIN semesters sem ON sem.id=a.semester_id WHERE ${admin ? "1=1" : "a.student=?"} ORDER BY a.submitted_at DESC`,
       admin ? [] : [u.id],
     ),
+    paymentRequests: finance
+      ? await read(
+          `SELECT p.*,s.code semester,i.label invoice_label,u.name student_name FROM student_payment_requests p JOIN semesters s ON s.id=p.semester_id JOIN invoices i ON i.id=p.invoice JOIN users u ON u.id=p.student WHERE ${admin || u.role === "ACCOUNTS_OFFICER" ? "1=1" : "p.student=?"} ORDER BY p.created_at DESC`,
+          admin || u.role === "ACCOUNTS_OFFICER" ? [] : [u.id],
+        )
+      : await read(
+          "SELECT p.*,s.code semester,i.label invoice_label,u.name student_name FROM student_payment_requests p JOIN semesters s ON s.id=p.semester_id JOIN invoices i ON i.id=p.invoice JOIN users u ON u.id=p.student WHERE p.student=? ORDER BY p.created_at DESC",
+          [u.id],
+        ),
   };
   const ticketIds = extra.tickets.map((t) => t.id);
   extra.replies = await read(
-    `SELECT r.*,u.name author FROM support_replies r JOIN users u ON u.id=r.author WHERE r.ticket IN (${ticketIds.length ? ticketIds.map(() => "?").join(",") : "NULL"}) ORDER BY r.created_at`,
+    `SELECT r.*,t.semester_id,u.name author FROM support_replies r JOIN support_tickets t ON t.id=r.ticket JOIN users u ON u.id=r.author WHERE r.ticket IN (${ticketIds.length ? ticketIds.map(() => "?").join(",") : "NULL"}) ORDER BY r.created_at`,
     ticketIds,
   );
   for (const r of d.regs) {
@@ -436,7 +445,7 @@ export async function supplement(db, d, u) {
   }
   return extra;
 }
-export function extraOptions(d, u) {
+export function extraOptions(d, u, semesterId = null) {
   const e = d.extra,
     opts = (arr, fn) => arr.map((r) => ({ id: r.id, label: fn(r) })),
     choices = (vs) => vs.map((id) => ({ id, label: id })),
@@ -461,18 +470,21 @@ export function extraOptions(d, u) {
     sectionStates: choices(["Active", "Closed"]),
     sessionStates: choices(["Held", "Cancelled"]),
     categories: choices(["Midterm", "Final", "Quiz", "Assignment", "Lab"]),
-    tests: opts(e.assessments, (a) => a.code + " · " + a.title),
+    tests: opts(e.assessments.filter((a) => !semesterId || Number(a.term_id) === Number(semesterId)), (a) => a.code + " · " + a.title),
     publishedRegs: opts(
-      d.regs.filter((r) => r.published),
+      d.regs.filter((r) => r.published && (!semesterId || Number(r.term) === Number(semesterId))),
       reg,
     ),
-    invoices: opts(d.bills, (r) => r.student_name + " · " + r.label),
+    invoices: opts(d.bills.filter((r) => !semesterId || Number(r.term) === Number(semesterId)), (r) => (r.semester ? r.semester + " · " : "") + r.student_name + " · " + r.label),
+    payableInvoices: opts(d.bills.filter((r) => Number(r.balance) > 0 && (!semesterId || Number(r.term) === Number(semesterId))), (r) => r.semester + " · " + r.label + " · due BDT " + Number(r.balance).toFixed(2)),
+    paymentMethods: choices(["bKash", "Nagad", "Bank transfer", "Office"]),
+    pendingPaymentRequests: opts(e.paymentRequests.filter((r) => r.status === "Pending" && (!semesterId || Number(r.semester_id) === Number(semesterId))), (r) => r.student_name + " · " + r.semester + " · " + r.reference + " · BDT " + Number(r.amount).toFixed(2)),
     validReceipts: opts(
-      d.payments.filter((r) => r.state === "Valid"),
+      d.payments.filter((r) => r.state === "Valid" && (!semesterId || Number(r.term_id) === Number(semesterId))),
       (r) => r.reference,
     ),
     pendingWaivers: opts(
-      d.payments.filter((r) => r.state === "Pending"),
+      d.payments.filter((r) => r.state === "Pending" && (!semesterId || Number(r.term_id) === Number(semesterId))),
       (r) => r.reference,
     ),
     waiverDecisions: choices(["Approved", "Rejected"]),
@@ -488,60 +500,60 @@ export function extraOptions(d, u) {
       (c) => c.accession + " · " + c.title,
     ),
     fineLoans: opts(
-      d.loans.filter((l) => l.returned),
+      d.loans.filter((l) => l.returned && (!semesterId || Number(l.semester_id) === Number(semesterId))),
       (l) => l.borrower + " · " + l.title,
     ),
     fineStates: choices(["Adjusted", "Paid", "Waived"]),
     rooms: opts(d.rooms, (r) => r.name),
     roomStates: choices(["Unavailable", "Available"]),
     draftClasses: d.routine
-      .filter((r) => !r.published)
+      .filter((r) => !r.published && (!semesterId || Number(d.offerings.find((o) => o.id === r.offering)?.term) === Number(semesterId)))
       .map((r) => ({ id: r.offering, label: r.code + " · " + r.section })),
     reviewable: opts(
-      d.theses.filter((t) => ["Submitted", "Approved"].includes(t.status)),
+      d.theses.filter((t) => ["Submitted", "Approved"].includes(t.status) && (!semesterId || Number(t.semester_id) === Number(semesterId))),
       th,
     ),
     submissions: opts(
-      d.updates.filter((x) => x.filename),
+      d.updates.filter((x) => x.filename && (!semesterId || Number(d.theses.find((t) => t.id === x.thesis)?.semester_id) === Number(semesterId))),
       (r) => r.filename + " · #" + r.id,
     ),
     finalTheses: opts(
-      d.theses.filter((t) => t.status === "Final submitted"),
+      d.theses.filter((t) => t.status === "Final submitted" && (!semesterId || Number(t.semester_id) === Number(semesterId))),
       th,
     ),
     scheduledTheses: opts(
-      d.theses.filter((t) => t.status === "Defense scheduled"),
+      d.theses.filter((t) => t.status === "Defense scheduled" && (!semesterId || Number(t.semester_id) === Number(semesterId))),
       th,
     ),
     outcomes: choices(["Passed", "Revision required"]),
-    allOfferings: opts(d.offerings, (r) => r.code + " · " + r.semester + " / " + r.section),
+    allOfferings: opts(d.offerings.filter((r) => !semesterId || Number(r.term) === Number(semesterId)), (r) => r.code + " · " + r.semester + " / " + r.section),
     examTypes: choices(["Midterm", "Final", "Quiz", "Practical", "Viva"]),
-    examDrafts: opts(e.examSchedules.filter((x) => x.state !== "Cancelled"), (x) => x.code + " · " + x.title + " · " + x.exam_date + " · " + x.state),
+    examDrafts: opts(e.examSchedules.filter((x) => x.state !== "Cancelled" && (!semesterId || Number(x.term_id) === Number(semesterId))), (x) => x.code + " · " + x.title + " · " + x.exam_date + " · " + x.state),
     examStates: choices(["Published", "Cancelled"]),
     correctionSessions: e.sessions
-      .filter((s) => s.status === "Held")
-      .flatMap((s) => d.regs.filter((r) => r.offering === s.offering && r.status === "Approved" && (u.role !== "STUDENT" || r.student === u.id)).map((r) => ({ id: `${r.id}|${s.day}`, label: `${r.code} · ${s.day}` }))),
+      .filter((s) => s.status === "Held" && (!semesterId || Number(s.term_id) === Number(semesterId)))
+      .flatMap((s) => d.regs.filter((r) => r.offering === s.offering && r.status === "Approved" && (!semesterId || Number(r.term) === Number(semesterId)) && (u.role !== "STUDENT" || r.student === u.id)).map((r) => ({ id: `${r.id}|${s.day}`, label: `${r.code} · ${s.day}` }))),
     attendanceStatuses: choices(["Present", "Absent", "Late", "Excused"]),
-    reviewableCorrections: opts(e.corrections.filter((x) => x.status === "Pending" && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.day),
-    pendingGradeReviews: opts(e.gradeReviews.filter((x) => ["Pending", "Under review"].includes(x.status) && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.status),
+    reviewableCorrections: opts(e.corrections.filter((x) => x.status === "Pending" && (!semesterId || Number(x.term_id) === Number(semesterId)) && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.day),
+    pendingGradeReviews: opts(e.gradeReviews.filter((x) => ["Pending", "Under review"].includes(x.status) && (!semesterId || Number(x.term_id) === Number(semesterId)) && (u.role === "ADMIN" || x.teacher === u.id)), (x) => x.student_name + " · " + x.code + " · " + x.status),
     gradeReviewStates: choices(["Under review", "Resolved", "Rejected"]),
     documentTypes: choices(["Enrollment certificate", "Transcript", "Student ID card", "Bonafide certificate", "Other"]),
-    pendingDocuments: opts(e.documentRequests.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.document_type),
+    pendingDocuments: opts(e.documentRequests.filter((x) => x.status === "Pending" && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => x.student_name + " · " + x.document_type),
     documentDecisions: choices(["Approved", "Rejected", "Ready"]),
     supportCategories: choices(["Academic", "Registration", "Finance", "Technical", "Other"]),
-    replyableTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status)), (x) => "#" + x.id + " · " + x.subject),
-    openTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status)), (x) => "#" + x.id + " · " + x.subject),
+    replyableTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status) && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => "#" + x.id + " · " + x.subject),
+    openTickets: opts(e.tickets.filter((x) => !["Resolved", "Closed"].includes(x.status) && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => "#" + x.id + " · " + x.subject),
     ticketStates: choices(["Open", "In progress", "Resolved", "Closed"]),
     unavailableBooks: opts(d.books.filter((x) => Number(x.available) === 0), (x) => x.code + " · " + x.title),
-    ownReservations: opts(e.reservations.filter((x) => x.student === u.id && x.status === "Pending"), (x) => x.title),
-    pendingReservations: opts(e.reservations.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.title),
+    ownReservations: opts(e.reservations.filter((x) => x.student === u.id && x.status === "Pending" && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => x.title),
+    pendingReservations: opts(e.reservations.filter((x) => x.status === "Pending" && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => x.student_name + " · " + x.title),
     reservationStates: choices(["Ready", "Rejected"]),
-    renewableLoans: opts(d.loans.filter((x) => x.student === u.id && !x.returned && x.due >= today() && !e.renewals.some((r) => r.loan === x.id && ["Pending", "Approved"].includes(r.status))), (x) => x.title + " · due " + x.due),
-    pendingRenewals: opts(e.renewals.filter((x) => x.status === "Pending"), (x) => x.student_name + " · " + x.title),
+    renewableLoans: opts(d.loans.filter((x) => x.student === u.id && !x.returned && x.due >= today() && (!semesterId || Number(x.semester_id) === Number(semesterId)) && !e.renewals.some((r) => r.loan === x.id && ["Pending", "Approved"].includes(r.status))), (x) => x.title + " · due " + x.due),
+    pendingRenewals: opts(e.renewals.filter((x) => x.status === "Pending" && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => x.student_name + " · " + x.title),
     toggle: choices(["On", "Off"]),
     opportunityTypes: choices(["Internship", "Full-time", "Part-time", "Research", "Scholarship"]),
     availableOpportunities: opts(e.opportunities.filter((x) => x.status === "Published" && !e.applications.some((a) => a.opportunity === x.id && a.student === u.id)), (x) => x.title + " · " + x.organization),
-    submittedApplications: opts(e.applications.filter((x) => ["Submitted", "Under review"].includes(x.status)), (x) => x.student_name + " · " + x.opportunity_title + " · " + x.status),
+    submittedApplications: opts(e.applications.filter((x) => ["Submitted", "Under review"].includes(x.status) && (!semesterId || Number(x.semester_id) === Number(semesterId))), (x) => x.student_name + " · " + x.opportunity_title + " · " + x.status),
     applicationStates: choices(["Under review", "Shortlisted", "Rejected"]),
   };
 }
@@ -609,6 +621,7 @@ export function addTables(groups, table, d, u) {
   add("Teaching", "Assessment marks", "title reg mark", e.marks);
   add("People", "Advisor assignments", "student advisor effective", e.history);
   add("Finance", "Invoice items", "invoice label amount", e.items);
+  add("Finance", "Semester payment requests", "student_name semester invoice_label amount method reference status review_note created_at", e.paymentRequests);
   add(
     "Library",
     "Physical copies",
@@ -624,10 +637,10 @@ export function addTables(groups, table, d, u) {
   add("Routine", "Room availability exceptions", "name slot reason", e.blocks);
   add("Routine", "Review history", "term state actor created", e.reviews);
   add("Routine", "Exam schedule", "code course_name semester title exam_type exam_date starts_at ends_at room_name state", e.examSchedules);
-  add("Teaching", "Student attendance correction requests", "student_name code day requested_status reason status review_reason created_at", e.corrections);
-  add("Teaching", "Grade review requests", "student_name code reason status response created_at updated_at", e.gradeReviews);
-  add("Library", "Book reservations", "student_name title status created_at", e.reservations);
-  add("Library", "Loan renewal requests", "student_name title current_due requested_due status review_reason", e.renewals);
+  add("Teaching", "Student attendance correction requests", "student_name code semester day requested_status reason status review_reason created_at", e.corrections);
+  add("Teaching", "Grade review requests", "student_name code semester reason status response created_at updated_at", e.gradeReviews);
+  add("Library", "Book reservations", "student_name title semester status created_at", e.reservations);
+  add("Library", "Loan renewal requests", "student_name title semester current_due requested_due status review_reason", e.renewals);
   if (u.role === "STUDENT" || u.role === "ADMIN") {
     if (!groups["Student services"])
       groups["Student services"] = { tables: [], forms: [] };
@@ -637,19 +650,19 @@ export function addTables(groups, table, d, u) {
     if (!groups["Student documents"])
       groups["Student documents"] = { tables: [], forms: [] };
     groups["Student documents"].tables.push(
-      table("Document requests", "document_type purpose status response requested_at updated_at", e.documentRequests),
+      table("Document requests", "semester document_type purpose status response requested_at updated_at", e.documentRequests),
     );
     if (!groups["Student support"])
       groups["Student support"] = { tables: [], forms: [] };
     groups["Student support"].tables.push(
-      table("Support tickets", "id category subject description status reply_count created_at updated_at", e.tickets),
+      table("Support tickets", "id semester category subject description status reply_count created_at updated_at", e.tickets),
       table("Ticket replies", "ticket author message created_at", e.replies),
     );
     if (!groups["Career & internship"])
       groups["Career & internship"] = { tables: [], forms: [] };
     groups["Career & internship"].tables.push(
       table("Opportunities", "title organization opportunity_type description location deadline application_url status", e.opportunities),
-      table("My applications", "opportunity_title organization cover_note status submitted_at", e.applications),
+      table("My applications", "semester opportunity_title organization cover_note status submitted_at", e.applications),
     );
   }
   groups["Account settings"] = {
@@ -669,7 +682,7 @@ export function addTables(groups, table, d, u) {
     e.vivas,
   );
 }
-export async function runExtra(db, u, d, key, b) {
+export async function runExtra(db, u, d, key, b, semesterId = null) {
   const q = async (sql, ...args) => (await db.execute(sql, args))[0],
     e = d.extra;
   const notify = async (recipient, message, category = "academic") => {
@@ -1058,11 +1071,12 @@ export async function runExtra(db, u, d, key, b) {
           "Check copy availability, student status, due date and borrowing policy.",
         );
       const l = await q(
-        "INSERT INTO loans(book,student,issued,due) VALUES(?,?,?,?)",
+        "INSERT INTO loans(book,student,issued,due,semester_id) VALUES(?,?,?,?,?)",
         copy.book,
         b.student,
         today(),
         b.due,
+        semesterId,
       );
       await q(
         "INSERT INTO loan_copies(loan,copy_id) VALUES(?,?)",
@@ -1119,11 +1133,12 @@ export async function runExtra(db, u, d, key, b) {
       if (t && !["Draft", "Revision requested"].includes(t.status))
         bad("Your proposal is already under review.");
       await q(
-        "INSERT INTO theses(student,title,proposal,status) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),proposal=VALUES(proposal),status=VALUES(status)",
+        "INSERT INTO theses(student,title,proposal,status,semester_id) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),proposal=VALUES(proposal),status=VALUES(status),semester_id=VALUES(semester_id)",
         u.id,
         b.title,
         b.proposal,
         key === "topic" ? "Submitted" : "Draft",
+        semesterId,
       );
       break;
     }
@@ -1230,6 +1245,75 @@ export async function runExtra(db, u, d, key, b) {
       }
       break;
     }
+    case "request_payment": {
+      const invoice = d.bills.find(
+        (item) =>
+          Number(item.id) === Number(b.invoice) &&
+          Number(item.term) === Number(semesterId),
+      );
+      if (!invoice || Number(invoice.balance) <= 0)
+        bad("Choose an unpaid invoice from this semester.");
+      if (Number(b.amount) > Number(invoice.balance))
+        bad("Payment amount is higher than the remaining invoice balance.");
+      if (
+        (await q("SELECT id FROM receipts WHERE reference=? UNION SELECT id FROM student_payment_requests WHERE reference=?", b.reference, b.reference)).length
+      )
+        bad("This transaction reference has already been used.");
+      await q(
+        "INSERT INTO student_payment_requests(student,invoice,semester_id,amount,method,reference,student_note) VALUES(?,?,?,?,?,?,NULLIF(?,''))",
+        u.id,
+        invoice.id,
+        semesterId,
+        b.amount,
+        b.method,
+        b.reference,
+        b.reason,
+      );
+      break;
+    }
+    case "payment_request_review": {
+      const request = e.paymentRequests.find(
+        (item) =>
+          Number(item.id) === Number(b.request) && item.status === "Pending",
+      );
+      if (!request) bad("This payment request is no longer pending.");
+      if (b.review_reason.length > 500) bad("Review note must be 500 characters or fewer.");
+      let receiptId = null;
+      if (b.decision === "Approved") {
+        const invoice = d.bills.find((item) => Number(item.id) === Number(request.invoice));
+        if (!invoice || Number(invoice.balance) < Number(request.amount))
+          bad("The invoice balance changed; review the remaining amount first.");
+        const result = await q(
+          "INSERT INTO receipts(invoice,amount,kind,reference) VALUES(?,?,'Payment',?)",
+          request.invoice,
+          request.amount,
+          request.reference,
+        );
+        receiptId = result.insertId;
+        await q(
+          "INSERT INTO receipt_details(receipt,state,method,reason,actor,reviewer) VALUES(?,'Valid',?,?,?,?)",
+          receiptId,
+          request.method,
+          (b.review_reason || "Student payment verified").slice(0, 140),
+          request.student,
+          u.id,
+        );
+      }
+      await q(
+        "UPDATE student_payment_requests SET status=?,reviewer=?,review_note=NULLIF(?, ''),receipt_id=? WHERE id=? AND status='Pending'",
+        b.decision,
+        u.id,
+        b.review_reason,
+        receiptId,
+        request.id,
+      );
+      await notify(
+        request.student,
+        "Your " + request.semester + " fee payment was " + b.decision.toLowerCase() + (b.review_reason ? ": " + b.review_reason.slice(0, 100) : ""),
+        "finance",
+      );
+      break;
+    }
     case "attendance_request": {
       const match = /^(\d+)\|(\d{4}-\d\d-\d\d)$/.exec(b.session);
       if (!match) bad("Choose a valid held class session.");
@@ -1280,7 +1364,7 @@ export async function runExtra(db, u, d, key, b) {
     }
     case "document_request":
       if (b.purpose.length > 1000) bad("Purpose must be 1000 characters or fewer.");
-      await q("INSERT INTO student_document_requests(student,document_type,purpose) VALUES(?,?,?)", u.id, b.document_type, b.purpose);
+      await q("INSERT INTO student_document_requests(student,document_type,purpose,semester_id) VALUES(?,?,?,?)", u.id, b.document_type, b.purpose, semesterId);
       break;
     case "document_review": {
       const [request] = await q("SELECT * FROM student_document_requests WHERE id=? FOR UPDATE", b.document_request);
@@ -1292,7 +1376,7 @@ export async function runExtra(db, u, d, key, b) {
     }
     case "support_ticket":
       if (b.description.length > 5000) bad("Description must be 5000 characters or fewer.");
-      await q("INSERT INTO support_tickets(student,category,subject,description) VALUES(?,?,?,?)", u.id, b.category, b.subject, b.description);
+      await q("INSERT INTO support_tickets(student,category,subject,description,semester_id) VALUES(?,?,?,?,?)", u.id, b.category, b.subject, b.description, semesterId);
       break;
     case "ticket_reply": {
       const [ticket] = await q("SELECT * FROM support_tickets WHERE id=? FOR UPDATE", b.ticket);
@@ -1316,7 +1400,7 @@ export async function runExtra(db, u, d, key, b) {
       if (!book || Number(book.available) > 0) bad("Reservations are for books with no available copies.");
       if ((await q("SELECT id FROM library_reservations WHERE student=? AND book=? AND status IN ('Pending','Ready')", u.id, b.book)).length)
         bad("You already have an active reservation for this book.");
-      await q("INSERT INTO library_reservations(book,student) VALUES(?,?)", b.book, u.id);
+      await q("INSERT INTO library_reservations(book,student,semester_id) VALUES(?,?,?)", b.book, u.id, semesterId);
       break;
     }
     case "cancel_reservation": {
@@ -1343,7 +1427,7 @@ export async function runExtra(db, u, d, key, b) {
       if (b.requested_due > maxDue) bad("A renewal can extend the due date by at most 14 days.");
       if (e.renewals.some((r) => r.loan === loan.id && ["Pending", "Approved"].includes(r.status))) bad("This loan already has a pending or approved renewal.");
       if ((await q("SELECT id FROM library_reservations WHERE book=? AND student<>? AND status IN ('Pending','Ready')", loan.book, u.id)).length) bad("Another student is waiting for this book.");
-      await q("INSERT INTO loan_renewal_requests(loan,student,requested_due) VALUES(?,?,?)", loan.id, u.id, b.requested_due);
+      await q("INSERT INTO loan_renewal_requests(loan,student,requested_due,semester_id) VALUES(?,?,?,?)", loan.id, u.id, b.requested_due, semesterId);
       break;
     }
     case "renewal_review": {
@@ -1372,7 +1456,7 @@ export async function runExtra(db, u, d, key, b) {
     case "career_apply": {
       const opportunity = e.opportunities.find((x) => x.id === b.opportunity && x.status === "Published" && (!x.deadline || x.deadline >= today()));
       if (!opportunity || b.cover_note.length > 1000) bad("This opportunity is closed or the application note is too long.");
-      await q("INSERT INTO career_applications(opportunity,student,cover_note) VALUES(?,?,NULLIF(?,''))", b.opportunity, u.id, b.cover_note);
+      await q("INSERT INTO career_applications(opportunity,student,cover_note,semester_id) VALUES(?,?,NULLIF(?,''),?)", b.opportunity, u.id, b.cover_note, semesterId);
       break;
     }
     case "career_review": {
