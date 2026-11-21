@@ -94,7 +94,7 @@ export function catalogRouter() {
     if (active !== undefined && !["0", "1"].includes(active))
       invalid("Invalid status filter.");
     const where =
-      " WHERE (name ILIKE ? OR code ILIKE ?)" +
+      " WHERE (LOWER(name) LIKE LOWER(?) OR LOWER(code) LIKE LOWER(?))" +
       (active === undefined ? "" : " AND active=?");
     const args =
       active === undefined ? [search, search] : [search, search, active];

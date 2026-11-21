@@ -1,0 +1,484 @@
+-- Smart University ERP schema for MySQL 8.0.16+
+-- Use InnoDB and utf8mb4 so foreign keys and multilingual data work correctly.
+
+CREATE TABLE IF NOT EXISTS users (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, email VARCHAR(180) NOT NULL UNIQUE,
+ name VARCHAR(100) NOT NULL, password_hash VARCHAR(255) NOT NULL,
+ role VARCHAR(32) NOT NULL CHECK (role IN ('ADMIN','STUDENT','TEACHER','ADVISOR','ACCOUNTS_OFFICER','LIBRARIAN','THESIS_SUPERVISOR')),
+ active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sessions (
+ token_hash CHAR(64) PRIMARY KEY, user_id INT NOT NULL, expires_at DATETIME NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, INDEX sessions_expires_at_idx (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS departments (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, name VARCHAR(140) NOT NULL,
+ active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS programs (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, name VARCHAR(140) NOT NULL,
+ department_id INT NOT NULL, credits DECIMAL(5,1) NOT NULL, active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+ FOREIGN KEY(department_id) REFERENCES departments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS academic_years (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, name VARCHAR(140) NOT NULL,
+ starts_on DATE NOT NULL, ends_on DATE NOT NULL, active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS semesters (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, name VARCHAR(140) NOT NULL,
+ year_id INT NOT NULL, starts_on DATE NOT NULL, ends_on DATE NOT NULL,
+ opens_on DATE NOT NULL, closes_on DATE NOT NULL, drop_on DATE NOT NULL,
+ active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1)), FOREIGN KEY(year_id) REFERENCES academic_years(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS courses (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, name VARCHAR(140) NOT NULL,
+ department_id INT NOT NULL, credits DECIMAL(4,1) NOT NULL, active SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+ FOREIGN KEY(department_id) REFERENCES departments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS students (
+ user_id INT PRIMARY KEY, student_no VARCHAR(32) UNIQUE NOT NULL, program_id INT NOT NULL, batch VARCHAR(30) NOT NULL,
+ status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','ON_LEAVE','GRADUATED','SUSPENDED','INACTIVE')),
+ FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(program_id) REFERENCES programs(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, actor_id INT NOT NULL, action VARCHAR(60) NOT NULL,
+ resource VARCHAR(40) NOT NULL, record_id INT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(actor_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS faculty (
+user_id INT PRIMARY KEY, department_id INT NOT NULL, designation VARCHAR(100) NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(department_id) REFERENCES departments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS advising (
+student INT PRIMARY KEY, advisor INT NOT NULL,
+ FOREIGN KEY(student) REFERENCES students(user_id), FOREIGN KEY(advisor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS prerequisites (
+course INT NOT NULL, required_course INT NOT NULL, PRIMARY KEY(course,required_course),
+ FOREIGN KEY(course) REFERENCES courses(id), FOREIGN KEY(required_course) REFERENCES courses(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS offerings (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, course INT NOT NULL, term INT NOT NULL,
+ teacher INT NOT NULL, program INT NOT NULL, batch VARCHAR(30) NOT NULL,
+ section VARCHAR(20) NOT NULL, capacity INT NOT NULL, kind VARCHAR(12) NOT NULL, UNIQUE(course,term,section),
+ FOREIGN KEY(course) REFERENCES courses(id), FOREIGN KEY(term) REFERENCES semesters(id), FOREIGN KEY(teacher) REFERENCES users(id), FOREIGN KEY(program) REFERENCES programs(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS registrations (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, student INT NOT NULL, offering INT NOT NULL,
+ status VARCHAR(12) NOT NULL DEFAULT 'Pending', UNIQUE(student,offering),
+ FOREIGN KEY(student) REFERENCES students(user_id), FOREIGN KEY(offering) REFERENCES offerings(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS attendance (
+reg INT NOT NULL, day DATE NOT NULL, present SMALLINT NOT NULL CHECK (present IN (0, 1)), PRIMARY KEY(reg,day),
+ FOREIGN KEY(reg) REFERENCES registrations(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS results (
+reg INT PRIMARY KEY, assessment DECIMAL(5,2) NOT NULL, exam DECIMAL(5,2) NOT NULL, published SMALLINT NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
+ FOREIGN KEY(reg) REFERENCES registrations(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoices (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, student INT NOT NULL, label VARCHAR(120) NOT NULL,
+ amount DECIMAL(12,2) NOT NULL, due DATE NOT NULL, UNIQUE(student,label),
+ FOREIGN KEY(student) REFERENCES students(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS receipts (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, invoice INT NOT NULL, amount DECIMAL(12,2) NOT NULL,
+ kind VARCHAR(10) NOT NULL, reference VARCHAR(100) NOT NULL UNIQUE, recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(invoice) REFERENCES invoices(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notices (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, title VARCHAR(140) NOT NULL, body TEXT NOT NULL, audience VARCHAR(40) NOT NULL,
+ target INT NOT NULL DEFAULT 0, author INT NOT NULL, created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(author) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notice_reads (
+notice INT NOT NULL, reader INT NOT NULL, PRIMARY KEY(notice,reader),
+ FOREIGN KEY(notice) REFERENCES notices(id), FOREIGN KEY(reader) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS books (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, code VARCHAR(32) NOT NULL UNIQUE, title VARCHAR(150) NOT NULL, author VARCHAR(100) NOT NULL, copies INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS loans (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, book INT NOT NULL, student INT NOT NULL, issued DATE NOT NULL,
+ due DATE NOT NULL, returned DATE, fine DECIMAL(10,2) NOT NULL DEFAULT 0,
+ FOREIGN KEY(book) REFERENCES books(id), FOREIGN KEY(student) REFERENCES students(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rooms (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50) NOT NULL UNIQUE, capacity INT NOT NULL, kind VARCHAR(12) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS unavailable (
+teacher INT NOT NULL, slot INT NOT NULL, PRIMARY KEY(teacher,slot),
+ FOREIGN KEY(teacher) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS timetable (
+offering INT PRIMARY KEY, room INT NOT NULL, slot INT NOT NULL, published SMALLINT NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
+ FOREIGN KEY(offering) REFERENCES offerings(id), FOREIGN KEY(room) REFERENCES rooms(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS theses (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, student INT NOT NULL UNIQUE, title VARCHAR(160) NOT NULL, proposal TEXT NOT NULL,
+ supervisor INT, status VARCHAR(30) NOT NULL DEFAULT 'Submitted',
+ FOREIGN KEY(student) REFERENCES students(user_id), FOREIGN KEY(supervisor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thesis_updates (
+id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, thesis INT NOT NULL, actor INT NOT NULL, note TEXT NOT NULL,
+ filename VARCHAR(150), document LONGBLOB, created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(thesis) REFERENCES theses(id), FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS workflow_lock (id INT PRIMARY KEY) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fee_types (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, label VARCHAR(120) NOT NULL UNIQUE, amount DECIMAL(12,2) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS materials (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, offering INT NOT NULL, title VARCHAR(140) NOT NULL, url VARCHAR(1200) NOT NULL,
+ FOREIGN KEY(offering) REFERENCES offerings(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS marking_policy (
+ offering INT PRIMARY KEY, coursework_weight INT NOT NULL, FOREIGN KEY(offering) REFERENCES offerings(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS program_rules (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ program INT NOT NULL,
+ credit_limit DECIMAL(5,1) NOT NULL DEFAULT 24,
+ loan_limit INT NOT NULL DEFAULT 3,
+ fine_rate DECIMAL(8,2) NOT NULL DEFAULT 5,
+ block_overdue SMALLINT NOT NULL DEFAULT 1 CHECK (block_overdue IN (0, 1)),
+ degree VARCHAR(60),
+ duration INT,
+ FOREIGN KEY(program) REFERENCES programs(id),
+ UNIQUE(program)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS grade_bands (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ program INT NOT NULL,
+ minimum DECIMAL(5,2) NOT NULL,
+ letter VARCHAR(12) NOT NULL,
+ points DECIMAL(3,2) NOT NULL,
+ UNIQUE(program,minimum),
+ FOREIGN KEY(program) REFERENCES programs(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS grade_publications (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ reg INT NOT NULL,
+ letter VARCHAR(12) NOT NULL,
+ points DECIMAL(3,2) NOT NULL,
+ mark DECIMAL(5,2) NOT NULL,
+ state VARCHAR(20) NOT NULL,
+ actor INT,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(reg) REFERENCES registrations(id),
+ FOREIGN KEY(actor) REFERENCES users(id),
+ UNIQUE(reg)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS class_sessions (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ offering INT NOT NULL,
+ day DATE NOT NULL,
+ status VARCHAR(16) NOT NULL,
+ actor INT,
+ UNIQUE(offering,day),
+ FOREIGN KEY(offering) REFERENCES offerings(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS attendance_notes (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ session_id INT NOT NULL,
+ reg INT NOT NULL,
+ actor INT NOT NULL,
+ reason VARCHAR(140) NOT NULL,
+ previous_status VARCHAR(16),
+ new_status VARCHAR(16) NOT NULL,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(session_id) REFERENCES class_sessions(id),
+ FOREIGN KEY(reg) REFERENCES registrations(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS assessments (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ offering INT NOT NULL,
+ title VARCHAR(140) NOT NULL,
+ category VARCHAR(30) NOT NULL,
+ maximum DECIMAL(8,2) NOT NULL,
+ weight DECIMAL(5,2) NOT NULL,
+ due DATE,
+ UNIQUE(offering,title),
+ FOREIGN KEY(offering) REFERENCES offerings(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS assessment_marks (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ assessment_id INT NOT NULL,
+ reg INT NOT NULL,
+ mark DECIMAL(8,2) NOT NULL,
+ actor INT NOT NULL,
+ UNIQUE(assessment_id,reg),
+ FOREIGN KEY(assessment_id) REFERENCES assessments(id),
+ FOREIGN KEY(reg) REFERENCES registrations(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoice_items (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ invoice INT NOT NULL,
+ label VARCHAR(140) NOT NULL,
+ amount DECIMAL(12,2) NOT NULL,
+ FOREIGN KEY(invoice) REFERENCES invoices(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS receipt_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ receipt INT NOT NULL,
+ state VARCHAR(20) NOT NULL,
+ method VARCHAR(30),
+ reason VARCHAR(140),
+ actor INT,
+ reviewer INT,
+ FOREIGN KEY(receipt) REFERENCES receipts(id),
+ FOREIGN KEY(actor) REFERENCES users(id),
+ FOREIGN KEY(reviewer) REFERENCES users(id),
+ UNIQUE(receipt)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS book_copies (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ book INT NOT NULL,
+ accession VARCHAR(70) UNIQUE NOT NULL,
+ condition_label VARCHAR(30) NOT NULL DEFAULT 'Good',
+ FOREIGN KEY(book) REFERENCES books(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS loan_copies (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ loan INT NOT NULL,
+ copy_id INT NOT NULL,
+ FOREIGN KEY(loan) REFERENCES loans(id),
+ FOREIGN KEY(copy_id) REFERENCES book_copies(id),
+ UNIQUE(loan)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fine_events (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ loan INT NOT NULL,
+ actor INT NOT NULL,
+ status VARCHAR(20) NOT NULL,
+ amount DECIMAL(10,2) NOT NULL,
+ reason VARCHAR(140) NOT NULL,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(loan) REFERENCES loans(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS room_blocks (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ room INT NOT NULL,
+ slot INT NOT NULL,
+ reason VARCHAR(140) NOT NULL,
+ UNIQUE(room,slot),
+ FOREIGN KEY(room) REFERENCES rooms(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS routine_reviews (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ term INT NOT NULL,
+ state VARCHAR(20) NOT NULL,
+ actor INT NOT NULL,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(term) REFERENCES semesters(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notifications (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ recipient INT NOT NULL,
+ message VARCHAR(250) NOT NULL,
+ seen SMALLINT NOT NULL DEFAULT 0 CHECK (seen IN (0, 1)),
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(recipient) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thesis_feedback (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ submission INT NOT NULL,
+ actor INT NOT NULL,
+ note TEXT NOT NULL,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(submission) REFERENCES thesis_updates(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thesis_vivas (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ thesis INT NOT NULL,
+ day DATE NOT NULL,
+ room VARCHAR(80) NOT NULL,
+ outcome VARCHAR(60) NOT NULL,
+ FOREIGN KEY(thesis) REFERENCES theses(id),
+ UNIQUE(thesis)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thesis_assignments (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ thesis INT NOT NULL,
+ supervisor INT NOT NULL,
+ actor INT NOT NULL,
+ created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(thesis) REFERENCES theses(id),
+ FOREIGN KEY(supervisor) REFERENCES users(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS advisor_history (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ student INT NOT NULL,
+ advisor INT NOT NULL,
+ effective DATE NOT NULL,
+ actor INT NOT NULL,
+ FOREIGN KEY(student) REFERENCES users(id),
+ FOREIGN KEY(advisor) REFERENCES users(id),
+ FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notice_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ notice INT NOT NULL,
+ state VARCHAR(20) NOT NULL,
+ starts DATE,
+ ends DATE,
+ filename VARCHAR(150),
+ document LONGBLOB,
+ FOREIGN KEY(notice) REFERENCES notices(id),
+ UNIQUE(notice)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS student_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ student INT NOT NULL,
+ admission INT NOT NULL,
+ FOREIGN KEY(student) REFERENCES users(id),
+ FOREIGN KEY(admission) REFERENCES semesters(id),
+ UNIQUE(student)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS faculty_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ teacher INT NOT NULL,
+ employee_no VARCHAR(32) UNIQUE NOT NULL,
+ FOREIGN KEY(teacher) REFERENCES users(id),
+ UNIQUE(teacher)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS section_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ offering INT NOT NULL,
+ status VARCHAR(20) NOT NULL,
+ FOREIGN KEY(offering) REFERENCES offerings(id),
+ UNIQUE(offering)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS event_details (
+ id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ audit_id BIGINT NOT NULL,
+ request_id VARCHAR(64),
+ reason VARCHAR(160),
+ change_data TEXT,
+ FOREIGN KEY(audit_id) REFERENCES audit_logs(id),
+ UNIQUE(audit_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS book_editions (
+ book INT PRIMARY KEY, isbn VARCHAR(17) UNIQUE, category VARCHAR(80), edition VARCHAR(40), publisher VARCHAR(120), published_year INT,
+ FOREIGN KEY(book) REFERENCES books(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS room_details (
+ room INT PRIMARY KEY, code VARCHAR(32) UNIQUE NOT NULL, building VARCHAR(80), department INT, active SMALLINT NOT NULL CHECK (active IN (0, 1)),
+ FOREIGN KEY(room) REFERENCES rooms(id), FOREIGN KEY(department) REFERENCES departments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fee_rules (
+ fee INT PRIMARY KEY, program INT NOT NULL, term INT NOT NULL, category VARCHAR(60) NOT NULL, active SMALLINT NOT NULL CHECK (active IN (0, 1)),
+ FOREIGN KEY(fee) REFERENCES fee_types(id), FOREIGN KEY(program) REFERENCES programs(id), FOREIGN KEY(term) REFERENCES semesters(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS course_descriptions (course INT PRIMARY KEY,description TEXT NOT NULL,FOREIGN KEY(course) REFERENCES courses(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS prerequisite_grades (
+ course INT NOT NULL,required_course INT NOT NULL, minimum DECIMAL(3,2) NOT NULL,PRIMARY KEY(course,required_course),
+ FOREIGN KEY(course,required_course) REFERENCES prerequisites(course,required_course)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS attendance_status (
+ reg INT NOT NULL, day DATE NOT NULL, status VARCHAR(16) NOT NULL,actor INT NOT NULL,
+ PRIMARY KEY(reg,day), FOREIGN KEY(reg,day) REFERENCES attendance(reg,day),FOREIGN KEY(actor) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS campus_settings (
+ id INT PRIMARY KEY, timezone_name VARCHAR(80) NOT NULL, currency_code VARCHAR(3) NOT NULL, date_locale VARCHAR(30) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS role_permissions (role_name VARCHAR(32) NOT NULL, permission_name VARCHAR(60) NOT NULL, PRIMARY KEY(role_name,permission_name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS release_seeds(version VARCHAR(40) PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS time_slots(id INT PRIMARY KEY, weekday VARCHAR(12) NOT NULL,start_time TIME NOT NULL,end_time TIME NOT NULL,UNIQUE(weekday,start_time)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS authors(id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,name VARCHAR(140) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS book_authors(book INT NOT NULL,author INT NOT NULL, PRIMARY KEY(book,author),FOREIGN KEY(book) REFERENCES books(id), FOREIGN KEY(author) REFERENCES authors(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoice_details(invoice INT PRIMARY KEY,term INT,issued DATE NOT NULL,FOREIGN KEY(invoice) REFERENCES invoices(id),FOREIGN KEY(term) REFERENCES semesters(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS registration_events(id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,reg INT NOT NULL,actor INT NOT NULL,state VARCHAR(20) NOT NULL,comment_text VARCHAR(140),created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(reg) REFERENCES registrations(id),FOREIGN KEY(actor) REFERENCES users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS thesis_events(id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,thesis INT NOT NULL,actor INT NOT NULL,state VARCHAR(30) NOT NULL,note VARCHAR(140),created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(thesis) REFERENCES theses(id),FOREIGN KEY(actor) REFERENCES users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS routine_conflicts(id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,term INT NOT NULL,actor INT NOT NULL,reason VARCHAR(250) NOT NULL,created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(term) REFERENCES semesters(id),FOREIGN KEY(actor) REFERENCES users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE OR REPLACE VIEW course_offerings AS SELECT course,term,COUNT(*) section_count FROM offerings GROUP BY course,term;
+
+CREATE OR REPLACE VIEW academic_sections AS SELECT o.*,COALESCE(d.status,'Active') availability FROM offerings o LEFT JOIN section_details d ON d.offering=o.id;
+
+CREATE OR REPLACE VIEW user_roles AS SELECT id user_id,role role_name FROM users;
+
+CREATE OR REPLACE VIEW roles AS SELECT DISTINCT role_name FROM role_permissions;
+
+CREATE OR REPLACE VIEW permissions AS SELECT DISTINCT permission_name FROM role_permissions;
+
+CREATE OR REPLACE VIEW payments AS SELECT r.*,COALESCE(d.state,'Valid') state,d.method,d.actor recorded_by FROM receipts r LEFT JOIN receipt_details d ON d.receipt=r.id WHERE r.kind='Payment';
+
+CREATE OR REPLACE VIEW waivers AS SELECT r.*,COALESCE(d.state,'Valid') state,d.reason,d.reviewer approved_by FROM receipts r LEFT JOIN receipt_details d ON d.receipt=r.id WHERE r.kind='Waiver';

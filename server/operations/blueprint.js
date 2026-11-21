@@ -1,6 +1,6 @@
 import { fail } from "../security.js";
 import { today, score } from "./records.js";
-import { bands } from "../../db/blueprint-data.js";
+import { bands } from "./grade-bands.js";
 const bad = (m) => fail(422, "WORKFLOW_RULE", m);
 export const extraForms = [
   [
@@ -547,9 +547,9 @@ export async function runExtra(db, u, d, key, b) {
     e = d.extra;
   switch (key) {
     case "coauthor":
-      await q("INSERT INTO authors(name) VALUES(?) ON CONFLICT DO NOTHING", b.name);
+      await q("INSERT IGNORE INTO authors(name) VALUES(?)", b.name);
       await q(
-        "INSERT INTO book_authors SELECT ?,id FROM authors WHERE name=? ON CONFLICT DO NOTHING",
+        "INSERT IGNORE INTO book_authors SELECT ?,id FROM authors WHERE name=?",
         b.book,
         b.name,
       );
@@ -600,7 +600,7 @@ export async function runExtra(db, u, d, key, b) {
       )
         bad("ISBN is already assigned.");
       await q(
-        "INSERT INTO book_editions VALUES(?,?,?,?,?,?) ON CONFLICT (book) DO UPDATE SET isbn=EXCLUDED.isbn,category=EXCLUDED.category,edition=EXCLUDED.edition,publisher=EXCLUDED.publisher,published_year=EXCLUDED.published_year",
+        "INSERT INTO book_editions VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE isbn=VALUES(isbn),category=VALUES(category),edition=VALUES(edition),publisher=VALUES(publisher),published_year=VALUES(published_year)",
         b.book,
         b.isbn || null,
         b.category,
@@ -634,7 +634,7 @@ export async function runExtra(db, u, d, key, b) {
       )
         bad("Move published classes first.");
       await q(
-        "INSERT INTO room_details VALUES(?,?,?,?,?) ON CONFLICT (room) DO UPDATE SET code=EXCLUDED.code,building=EXCLUDED.building,department=EXCLUDED.department,active=EXCLUDED.active",
+        "INSERT INTO room_details VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE code=VALUES(code),building=VALUES(building),department=VALUES(department),active=VALUES(active)",
         b.room,
         b.code,
         b.building,
@@ -645,7 +645,7 @@ export async function runExtra(db, u, d, key, b) {
     case "fee_rule":
       if (b.category.length > 60) bad("Fee category is too long.");
       await q(
-        "INSERT INTO fee_rules VALUES(?,?,?,?,?) ON CONFLICT (fee) DO UPDATE SET program=EXCLUDED.program,term=EXCLUDED.term,category=EXCLUDED.category,active=EXCLUDED.active",
+        "INSERT INTO fee_rules VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE program=VALUES(program),term=VALUES(term),category=VALUES(category),active=VALUES(active)",
         b.fee,
         b.program,
         b.term,
@@ -655,7 +655,7 @@ export async function runExtra(db, u, d, key, b) {
       break;
     case "course_summary":
       await q(
-        "INSERT INTO course_descriptions VALUES(?,?) ON CONFLICT (course) DO UPDATE SET description=EXCLUDED.description",
+        "INSERT INTO course_descriptions VALUES(?,?) ON DUPLICATE KEY UPDATE description=VALUES(description)",
         b.course,
         b.description,
       );
@@ -672,7 +672,7 @@ export async function runExtra(db, u, d, key, b) {
           "Select an existing prerequisite pair and grade points from 0 to 4.",
         );
       await q(
-        "INSERT INTO prerequisite_grades VALUES(?,?,?) ON CONFLICT (course,required_course) DO UPDATE SET minimum=EXCLUDED.minimum",
+        "INSERT INTO prerequisite_grades VALUES(?,?,?) ON DUPLICATE KEY UPDATE minimum=VALUES(minimum)",
         b.course,
         b.required_course,
         b.minimum,
@@ -682,7 +682,7 @@ export async function runExtra(db, u, d, key, b) {
       if (b.degree.length > 60 || b.duration > 20)
         bad("Check the duration in years.");
       await q(
-        "INSERT INTO program_rules(program,credit_limit,loan_limit,fine_rate,block_overdue,degree,duration) VALUES(?,?,?,?,?,?,?) ON CONFLICT (program) DO UPDATE SET credit_limit=EXCLUDED.credit_limit,loan_limit=EXCLUDED.loan_limit,fine_rate=EXCLUDED.fine_rate,block_overdue=EXCLUDED.block_overdue,degree=EXCLUDED.degree,duration=EXCLUDED.duration",
+        "INSERT INTO program_rules(program,credit_limit,loan_limit,fine_rate,block_overdue,degree,duration) VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE credit_limit=VALUES(credit_limit),loan_limit=VALUES(loan_limit),fine_rate=VALUES(fine_rate),block_overdue=VALUES(block_overdue),degree=VALUES(degree),duration=VALUES(duration)",
         b.program,
         b.credit_limit,
         b.loan_limit,
@@ -698,7 +698,7 @@ export async function runExtra(db, u, d, key, b) {
           "Grade points must be within 0–4 and the label within 12 characters.",
         );
       await q(
-        "INSERT INTO grade_bands(program,minimum,letter,points) VALUES(?,?,?,?) ON CONFLICT (program,minimum) DO UPDATE SET letter=EXCLUDED.letter,points=EXCLUDED.points",
+        "INSERT INTO grade_bands(program,minimum,letter,points) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE letter=VALUES(letter),points=VALUES(points)",
         b.program,
         b.minimum,
         b.letter,
@@ -725,7 +725,7 @@ export async function runExtra(db, u, d, key, b) {
     }
     case "admission":
       await q(
-        "INSERT INTO student_details(student,admission) VALUES(?,?) ON CONFLICT (student) DO UPDATE SET admission=EXCLUDED.admission",
+        "INSERT INTO student_details(student,admission) VALUES(?,?) ON DUPLICATE KEY UPDATE admission=VALUES(admission)",
         b.student,
         b.term,
       );
@@ -744,14 +744,14 @@ export async function runExtra(db, u, d, key, b) {
       )
         bad("Employee number already assigned.");
       await q(
-        "INSERT INTO faculty_details(teacher,employee_no) VALUES(?,?) ON CONFLICT (teacher) DO UPDATE SET employee_no=EXCLUDED.employee_no",
+        "INSERT INTO faculty_details(teacher,employee_no) VALUES(?,?) ON DUPLICATE KEY UPDATE employee_no=VALUES(employee_no)",
         b.teacher,
         b.employee_no,
       );
       break;
     case "section_state":
       await q(
-        "INSERT INTO section_details(offering,status) VALUES(?,?) ON CONFLICT (offering) DO UPDATE SET status=EXCLUDED.status",
+        "INSERT INTO section_details(offering,status) VALUES(?,?) ON DUPLICATE KEY UPDATE status=VALUES(status)",
         b.offering,
         b.status,
       );
@@ -761,7 +761,7 @@ export async function runExtra(db, u, d, key, b) {
       if (b.day < o.starts_on || b.day > o.ends_on || b.day > today())
         bad("Choose a valid past or current teaching date.");
       await q(
-        "INSERT INTO class_sessions(offering,day,status,actor) VALUES(?,?,?,?) ON CONFLICT (offering,day) DO UPDATE SET status=EXCLUDED.status,actor=EXCLUDED.actor",
+        "INSERT INTO class_sessions(offering,day,status,actor) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),actor=VALUES(actor)",
         o.id,
         b.day,
         b.status,
@@ -795,7 +795,7 @@ export async function runExtra(db, u, d, key, b) {
       if (a.offering !== r.offering || b.mark > Number(a.maximum))
         bad("Check section ownership and maximum marks.");
       await q(
-        "INSERT INTO assessment_marks(assessment_id,reg,mark,actor) VALUES(?,?,?,?) ON CONFLICT (assessment_id,reg) DO UPDATE SET mark=EXCLUDED.mark,actor=EXCLUDED.actor",
+        "INSERT INTO assessment_marks(assessment_id,reg,mark,actor) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE mark=VALUES(mark),actor=VALUES(actor)",
         a.id,
         r.id,
         b.mark,
@@ -821,7 +821,7 @@ export async function runExtra(db, u, d, key, b) {
       }
       total = Math.round(total * 100) / 100;
       await q(
-        "INSERT INTO results VALUES(?,?,?,0) ON CONFLICT (reg) DO UPDATE SET assessment=EXCLUDED.assessment,exam=EXCLUDED.exam",
+        "INSERT INTO results VALUES(?,?,?,0) ON DUPLICATE KEY UPDATE assessment=VALUES(assessment),exam=VALUES(exam)",
         r.id,
         total,
         total,
@@ -881,7 +881,7 @@ export async function runExtra(db, u, d, key, b) {
     case "notice_state":
       if (b.ends < b.starts) bad("End date precedes start.");
       await q(
-        "INSERT INTO notice_details(notice,state,starts,ends,filename,document) VALUES(?,?,?,?,?,?) ON CONFLICT (notice) DO UPDATE SET state=EXCLUDED.state,starts=EXCLUDED.starts,ends=EXCLUDED.ends,filename=COALESCE(EXCLUDED.filename,filename),document=COALESCE(EXCLUDED.document,document)",
+        "INSERT INTO notice_details(notice,state,starts,ends,filename,document) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE state=VALUES(state),starts=VALUES(starts),ends=VALUES(ends),filename=COALESCE(VALUES(filename),filename),document=COALESCE(VALUES(document),document)",
         b.notice,
         b.state,
         b.starts,
@@ -974,7 +974,7 @@ export async function runExtra(db, u, d, key, b) {
         )
           bad("Room has a published class in this slot.");
         await q(
-          "INSERT INTO room_blocks(room,slot,reason) VALUES(?,?,?) ON CONFLICT (room,slot) DO UPDATE SET reason=EXCLUDED.reason",
+          "INSERT INTO room_blocks(room,slot,reason) VALUES(?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason)",
           b.room,
           b.slot,
           b.reason,
@@ -987,7 +987,7 @@ export async function runExtra(db, u, d, key, b) {
       if (t && !["Draft", "Revision requested"].includes(t.status))
         bad("Your proposal is already under review.");
       await q(
-        "INSERT INTO theses(student,title,proposal,status) VALUES(?,?,?,?) ON CONFLICT (student) DO UPDATE SET title=EXCLUDED.title,proposal=EXCLUDED.proposal,status=EXCLUDED.status",
+        "INSERT INTO theses(student,title,proposal,status) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),proposal=VALUES(proposal),status=VALUES(status)",
         u.id,
         b.title,
         b.proposal,
@@ -1039,7 +1039,7 @@ export async function runExtra(db, u, d, key, b) {
       if (b.day < today() || b.room_name.length > 80)
         bad("Choose a current or future date and a room.");
       await q(
-        "INSERT INTO thesis_vivas(thesis,day,room,outcome) VALUES(?,?,?,'Scheduled') ON CONFLICT (thesis) DO UPDATE SET day=EXCLUDED.day,room=EXCLUDED.room,outcome='Scheduled'",
+        "INSERT INTO thesis_vivas(thesis,day,room,outcome) VALUES(?,?,?,'Scheduled') ON DUPLICATE KEY UPDATE day=VALUES(day),room=VALUES(room),outcome='Scheduled'",
         b.thesis,
         b.day,
         b.room_name,
@@ -1090,7 +1090,7 @@ export async function publishGrade(db, u, d, r) {
     band = scale.find((g) => g.minimum <= mark);
   if (!band) bad("The grading policy needs a band covering this mark.");
   await db.execute(
-    "INSERT INTO grade_publications(reg,letter,points,mark,state,actor) VALUES(?,?,?,?,'Published',?) ON CONFLICT (reg) DO UPDATE SET letter=EXCLUDED.letter,points=EXCLUDED.points,mark=EXCLUDED.mark,state='Published',actor=EXCLUDED.actor",
+    "INSERT INTO grade_publications(reg,letter,points,mark,state,actor) VALUES(?,?,?,?,'Published',?) ON DUPLICATE KEY UPDATE letter=VALUES(letter),points=VALUES(points),mark=VALUES(mark),state='Published',actor=VALUES(actor)",
     [r.id, band.letter, band.points, mark, u.id],
   );
 }

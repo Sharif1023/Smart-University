@@ -12,25 +12,16 @@ import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import net from "node:net";
-import pg from "pg";
+import mysql from "mysql2/promise";
 
-const { Client } = pg;
 process.chdir(fileURLToPath(new URL("../", import.meta.url)));
-
-const prompt = createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+const prompt = createInterface({ input: process.stdin, output: process.stdout });
 
 async function hiddenPassword() {
-  process.stdout.write("PostgreSQL administrator password: ");
+  process.stdout.write("MySQL administrator password: ");
   const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
   prompt.pause();
-  const secret = createInterface({
-    input: process.stdin,
-    output: sink,
-    terminal: true,
-  });
+  const secret = createInterface({ input: process.stdin, output: sink, terminal: true });
   try {
     return await secret.question("");
   } finally {
@@ -41,16 +32,26 @@ async function hiddenPassword() {
 
 function quoteIdentifier(value) {
   if (!/^[a-z][a-z\d_]*$/.test(value))
-    throw Error("Invalid generated PostgreSQL identifier.");
-  return '"' + value + '"';
+    throw Error("Invalid generated MySQL identifier.");
+  return "`" + value + "`";
+}
+
+function quoteAccount(value, host) {
+  if (!/^[a-z][a-z\d_]*$/.test(value))
+    throw Error("Invalid generated MySQL account.");
+  return "'" + value + "'@'" + host + "'";
 }
 
 async function provisionLocalDatabase() {
+  let demoPasswordSetting = "DEMO_PASSWORD=CampusDemo2026!";
   if (existsSync(".env") && statSync(".env").size > 0) {
     const previous = readFileSync(".env", "utf8");
+    demoPasswordSetting =
+      previous.split(/\r?\n/).find((line) => /^DEMO_PASSWORD=/.test(line)) ||
+      demoPasswordSetting;
     const oldDatabaseSettings =
-      /^(?:MYSQL_ROOT_PASSWORD|POSTGRES_ADMIN_USER|POSTGRES_ADMIN_PASSWORD)=/m.test(previous) ||
-      /^DB_PORT=5433$/m.test(previous);
+      /^(?:POSTGRES_[A-Z0-9_]+|MYSQL_ROOT_PASSWORD)=/m.test(previous) ||
+      /^DB_PORT=543[23]\s*$/m.test(previous);
     if (!oldDatabaseSettings) return;
     if (existsSync(".env.previous"))
       throw Error("Move or remove .env.previous before converting the saved database settings.");
@@ -59,13 +60,13 @@ async function provisionLocalDatabase() {
   }
 
   console.log(
-    "First launch: PostgreSQL must already be installed and running. Enter its local administrator connection details.",
+    "First launch: MySQL Server must already be installed and running. Enter its local administrator connection details.",
   );
-  const host = (await prompt.question("PostgreSQL host [127.0.0.1]: ")).trim() || "127.0.0.1";
-  const port = Number((await prompt.question("PostgreSQL port [5432]: ")).trim() || 5432);
+  const host = (await prompt.question("MySQL host [127.0.0.1]: ")).trim() || "127.0.0.1";
+  const port = Number((await prompt.question("MySQL port [3306]: ")).trim() || 3306);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw Error("Invalid PostgreSQL port.");
-  const adminUser = (await prompt.question("Administrator username [postgres]: ")).trim() || "postgres";
+    throw Error("Invalid MySQL port.");
+  const adminUser = (await prompt.question("Administrator username [root]: ")).trim() || "root";
   const adminPassword = await hiddenPassword();
 
   let setup;
@@ -88,67 +89,55 @@ async function provisionLocalDatabase() {
     });
   }
 
-  const admin = new Client({
+  const admin = await mysql.createConnection({
     host,
     port,
     user: adminUser,
     password: adminPassword,
-    database: "postgres",
-    connectionTimeoutMillis: 5000,
+    database: "mysql",
+    connectTimeout: 5000,
   });
   try {
-    await admin.connect();
-  } catch (error) {
-    await admin.end().catch(() => {});
-    throw error;
-  }
-  try {
-    const role = quoteIdentifier(setup.user);
     const database = quoteIdentifier(setup.database);
-    const existingRole = await admin.query(
-      "SELECT 1 FROM pg_roles WHERE rolname=$1",
-      [setup.user],
+    await admin.query(
+      "CREATE DATABASE IF NOT EXISTS " + database +
+        " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
     );
-    const password = "'" + setup.password + "'";
-    if (existingRole.rowCount)
-      await admin.query("ALTER ROLE " + role + " WITH LOGIN PASSWORD " + password);
-    else
-      await admin.query("CREATE ROLE " + role + " WITH LOGIN PASSWORD " + password);
+    for (const accountHost of ["localhost", "127.0.0.1"]) {
+      const account = quoteAccount(setup.user, accountHost);
+      const password = "'" + setup.password + "'";
+      await admin.query("CREATE USER IF NOT EXISTS " + account + " IDENTIFIED BY " + password);
+      await admin.query("ALTER USER " + account + " IDENTIFIED BY " + password);
+      await admin.query("GRANT ALL PRIVILEGES ON " + database + ".* TO " + account);
+    }
 
-    const existingDatabase = await admin.query(
-      "SELECT 1 FROM pg_database WHERE datname=$1",
-      [setup.database],
-    );
-    if (existingDatabase.rowCount)
-      await admin.query("ALTER DATABASE " + database + " OWNER TO " + role);
-    else
-      await admin.query("CREATE DATABASE " + database + " OWNER " + role);
-
-    const verify = new Client({
+    const verify = await mysql.createConnection({
       host,
       port,
       user: setup.user,
       password: setup.password,
       database: setup.database,
-      connectionTimeoutMillis: 5000,
+      connectTimeout: 5000,
+      timezone: "+06:00",
+      dateStrings: true,
     });
-    await verify.connect();
+    await verify.query("SELECT 1");
     await verify.end();
 
     const lines = [
       "PORT=4000",
       "APP_ORIGIN=http://localhost:4000",
-      "DB_HOST=" + host,
+      "DB_HOST=127.0.0.1",
       "DB_PORT=" + port,
       "DB_NAME=" + setup.database,
       "DB_USER=" + setup.user,
       "DB_PASSWORD=" + setup.password,
-      "DEMO_PASSWORD=CampusDemo2026!",
+      demoPasswordSetting,
       "ENABLE_PHASE4=false",
     ];
     writeFileSync(".env", lines.join("\n") + "\n", { mode: 0o600 });
     unlinkSync(".local-setup.json");
-    console.log("Created the local PostgreSQL database and application role.");
+    console.log("Created the local MySQL database and restricted application account.");
   } finally {
     await admin.end();
   }
@@ -223,9 +212,9 @@ async function main() {
 main().catch((error) => {
   const message =
     error.code === "ECONNREFUSED"
-      ? "Cannot connect to PostgreSQL. Start its Windows service and check the host/port."
-      : error.code === "28P01"
-        ? "PostgreSQL administrator login failed. Check the username and password."
+      ? "Cannot connect to MySQL. Start its Windows service and check the host/port."
+      : error.code === "ER_ACCESS_DENIED_ERROR"
+        ? "MySQL administrator login failed. Check the username and password."
         : error.code === "EADDRINUSE"
           ? "Port " + (process.env.PORT || 4000) + " is in use. Change PORT in .env and try again."
           : error.message;

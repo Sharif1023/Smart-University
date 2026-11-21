@@ -1,21 +1,14 @@
 # Verification
 
-## Current workspace checks
-
-- `npm.cmd run lint` — passed.
-- `npm.cmd test` — passed (5 unit tests).
-- `npm.cmd run build` — passed, including the TypeScript check.
-- `node --check` on the changed server and setup scripts — passed.
-- PostgreSQL migrations and database-backed suites — not run here; a local PostgreSQL service is not available in this environment.
-
-Run the static checks from the project root:
+Run the frontend and source checks from the project root:
 
 ```powershell
 npm.cmd run lint
-npm.cmd test
 npm.cmd run build
 ```
 
-For database-backed verification, configure `.env` to a separate PostgreSQL database ending in `_test`, then run `npm.cmd run db:setup` and `npm.cmd run db:verify-seed`. Run `npm.cmd run test:integration`, `npm.cmd run test:operations`, `npm.cmd run test:blueprint`, and `npm.cmd run test:e2e` against that test database. The workflow suites write records; never point them at data you need to keep.
+The database uses MySQL 8.0.16 or newer. Start the MySQL service, configure `.env`, and run `npm.cmd run db:setup` to apply the consolidated schema and seed. `npm.cmd run db:verify-seed` reports table counts and confirms all seven roles have 30 demo accounts plus the seven main role accounts.
 
-The Windows launcher provisions a local PostgreSQL database on first start. Verify that first-start flow on Windows before distributing a Windows package; the development shell is not a substitute for that platform check.
+Run database-backed integration, operations, blueprint and browser suites only against a separate MySQL database ending in `_test`. Apply `db:setup` to it first. These suites write records; do not point them at data you need to keep.
+
+The Windows launcher provisions the local database and app user on first start. Test that setup on Windows with a running MySQL service before distributing a Windows package.

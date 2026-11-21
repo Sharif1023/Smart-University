@@ -3,17 +3,12 @@ import { pool } from "./db.js";
 try {
   await pool.query("SELECT 1");
   const [[schema]] = await pool.query(
-    "SELECT to_regclass('schema_migrations') IS NOT NULL AS ready",
+    "SELECT COUNT(*) AS ready FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='users'",
   );
-  if (!schema.ready)
+  if (Number(schema.ready) !== 1)
     throw Error("Database schema is not initialized. Run `npm.cmd run db:setup` first.");
-  const [[migrations]] = await pool.query(
-    "SELECT COUNT(*) AS applied FROM schema_migrations WHERE name IN ('001_foundation.sql','002_operations.sql','003_teaching_finance.sql','004_blueprint.sql','005_catalog_details.sql','006_resource_history.sql')",
-  );
-  if (Number(migrations.applied) !== 6)
-    throw Error("Database migrations are incomplete. Run `npm.cmd run db:setup` first.");
 } catch (error) {
-  console.error("Application startup failed:", error.message);
+  console.error("MySQL connection or schema check failed:", error.message);
   await pool.end();
   process.exit(1);
 }

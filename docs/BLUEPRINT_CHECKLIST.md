@@ -19,7 +19,7 @@ The previous Windows release supplied migrations 001–003, the React/Express sh
 
 ## Implementation decisions
 
-- The Express/PostgreSQL stack and single active role per account are preserved. Stored action permissions supplement server-side ownership and validation.
+- The Express/MySQL stack and single active role per account are used. Stored action permissions supplement server-side ownership and validation.
 - An offering is identified by course and term. Sections have independent IDs for capacity, teacher, availability and enrollment. SQL views expose offerings, sections, user roles, permissions, payments and waivers.
 - Each section has one weekly meeting across 30 available 90-minute slots. The generator uses deterministic first-fit. An unsuccessful search identifies the section that could not be placed. Manual adjustments and publication run the same validation. The search does not prove every infeasible result mathematically.
 - Published attempts contribute to GPA by credit. Earned credits count a passed course once. Grade thresholds and credit limits are configurable by program. Sections without a named assessment plan can use the original coursework/final workflow. Admin can reopen results with a reason.

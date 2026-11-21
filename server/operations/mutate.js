@@ -170,7 +170,7 @@ export async function mutate(
         );
         if (clash.length) reject("Student number is already assigned.");
         await run(
-          "INSERT INTO students(user_id,student_no,program_id,batch,status) VALUES(?,?,?,?,?) ON CONFLICT (user_id) DO UPDATE SET student_no=EXCLUDED.student_no,program_id=EXCLUDED.program_id,batch=EXCLUDED.batch,status=EXCLUDED.status",
+          "INSERT INTO students(user_id,student_no,program_id,batch,status) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE student_no=VALUES(student_no),program_id=VALUES(program_id),batch=VALUES(batch),status=VALUES(status)",
           b.student,
           b.student_no,
           b.program,
@@ -181,7 +181,7 @@ export async function mutate(
       }
       case "faculty":
         await run(
-          "INSERT INTO faculty VALUES(?,?,?) ON CONFLICT (user_id) DO UPDATE SET department_id=EXCLUDED.department_id,designation=EXCLUDED.designation",
+          "INSERT INTO faculty VALUES(?,?,?) ON DUPLICATE KEY UPDATE department_id=VALUES(department_id),designation=VALUES(designation)",
           b.teacher,
           b.department,
           b.designation,
@@ -189,7 +189,7 @@ export async function mutate(
         break;
       case "advise":
         await run(
-          "INSERT INTO advising VALUES(?,?) ON CONFLICT (student) DO UPDATE SET advisor=EXCLUDED.advisor",
+          "INSERT INTO advising VALUES(?,?) ON DUPLICATE KEY UPDATE advisor=VALUES(advisor)",
           b.student,
           b.advisor,
         );
@@ -230,7 +230,7 @@ export async function mutate(
         break;
       case "register":
         await run(
-          "INSERT INTO registrations(student,offering,status) VALUES(?,?,'Pending') ON CONFLICT (student,offering) DO UPDATE SET status='Pending'",
+          "INSERT INTO registrations(student,offering,status) VALUES(?,?,'Pending') ON DUPLICATE KEY UPDATE status='Pending'",
           u.id,
           b.offering,
         );
@@ -311,13 +311,13 @@ export async function mutate(
         if (b.day < s.starts_on || b.day > s.ends_on || b.day > today())
           reject("Choose a past or current class date within the semester.");
         await run(
-          "INSERT INTO attendance VALUES(?,?,?) ON CONFLICT (reg,day) DO UPDATE SET present=EXCLUDED.present",
+          "INSERT INTO attendance VALUES(?,?,?) ON DUPLICATE KEY UPDATE present=VALUES(present)",
           b.reg,
           b.day,
           ["Present", "Late"].includes(b.present),
         );
         await execute(
-          "INSERT INTO attendance_status VALUES(?,?,?,?) ON CONFLICT (reg,day) DO UPDATE SET status=EXCLUDED.status,actor=EXCLUDED.actor",
+          "INSERT INTO attendance_status VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),actor=VALUES(actor)",
           b.reg,
           b.day,
           b.present,
@@ -331,7 +331,7 @@ export async function mutate(
             "This section uses weighted assessments. Enter each mark and calculate the draft.",
           );
         await run(
-          "INSERT INTO results(reg,assessment,exam) VALUES(?,?,?) ON CONFLICT (reg) DO UPDATE SET assessment=EXCLUDED.assessment,exam=EXCLUDED.exam",
+          "INSERT INTO results(reg,assessment,exam) VALUES(?,?,?) ON DUPLICATE KEY UPDATE assessment=VALUES(assessment),exam=VALUES(exam)",
           b.reg,
           b.assessment,
           b.exam,
@@ -377,7 +377,7 @@ export async function mutate(
         )
           reject("Set a weight from 1 to 99 before entering marks.");
         await run(
-          "INSERT INTO marking_policy VALUES(?,?) ON CONFLICT (offering) DO UPDATE SET coursework_weight=EXCLUDED.coursework_weight",
+          "INSERT INTO marking_policy VALUES(?,?) ON DUPLICATE KEY UPDATE coursework_weight=VALUES(coursework_weight)",
           b.offering,
           b.weight,
         );
@@ -434,7 +434,7 @@ export async function mutate(
       }
       case "read":
         await run(
-          "INSERT INTO notice_reads VALUES(?,?) ON CONFLICT DO NOTHING",
+          "INSERT IGNORE INTO notice_reads VALUES(?,?)",
           b.notice,
           u.id,
         );
@@ -455,7 +455,7 @@ export async function mutate(
             d.extra.rules.find((r) => r.program === p.program_id)?.fine_rate ??
             5;
         await run(
-          "UPDATE loans SET returned=?,fine=GREATEST(?::date-due,0)*? WHERE id=?",
+          "UPDATE loans SET returned=?,fine=GREATEST(DATEDIFF(CAST(? AS DATE),due),0)*? WHERE id=?",
           today(),
           today(),
           rate,
@@ -474,7 +474,7 @@ export async function mutate(
       case "block":
         if (d.routine.some((r) => r.slot === b.slot))
           reject("This slot has a published class.");
-        await run("INSERT INTO unavailable VALUES(?,?) ON CONFLICT DO NOTHING", u.id, b.slot);
+        await run("INSERT IGNORE INTO unavailable VALUES(?,?)", u.id, b.slot);
         break;
       case "unblock":
         await run(
@@ -650,9 +650,9 @@ export async function mutate(
       .split(/,| and /)
       .map((v) => v.trim())
       .filter(Boolean)) {
-      await execute("INSERT INTO authors(name) VALUES(?) ON CONFLICT DO NOTHING", name);
+      await execute("INSERT IGNORE INTO authors(name) VALUES(?)", name);
       await execute(
-        "INSERT INTO book_authors SELECT ?,id FROM authors WHERE name=? ON CONFLICT DO NOTHING",
+        "INSERT IGNORE INTO book_authors SELECT ?,id FROM authors WHERE name=?",
         entity,
         name,
       );
@@ -816,7 +816,7 @@ async function schedule(db, term, key, d) {
   if (key === "validate") return;
   for (const o of plan)
     await db.execute(
-      "INSERT INTO timetable(offering,room,slot,published) VALUES(?,?,?,?) ON CONFLICT (offering) DO UPDATE SET room=EXCLUDED.room,slot=EXCLUDED.slot,published=EXCLUDED.published",
+      "INSERT INTO timetable(offering,room,slot,published) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE room=VALUES(room),slot=VALUES(slot),published=VALUES(published)",
       [o.id, o.room, o.slot, key === "release"],
     );
 }

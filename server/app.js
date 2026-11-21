@@ -73,10 +73,10 @@ api.post(
         fail(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
       const token = randomBytes(32).toString("hex");
       await db.execute(
-        "DELETE FROM sessions WHERE expires_at <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')",
+        "DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP",
       );
       await db.execute(
-        "INSERT INTO sessions VALUES (?,?,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '8 hours')",
+        "INSERT INTO sessions VALUES (?,?,CURRENT_TIMESTAMP + INTERVAL 8 HOUR)",
         [digest(token), row.id],
       );
       return {
@@ -99,7 +99,7 @@ api.use(async (req, res, next) => {
     fail(401, "UNAUTHENTICATED", "Please sign in.");
   req.sessionHash = digest(token);
   const [[user]] = await pool.execute(
-    "SELECT u.id,u.email,u.name,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AND u.active=1",
+    "SELECT u.id,u.email,u.name,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at > CURRENT_TIMESTAMP AND u.active=1",
     [req.sessionHash],
   );
   if (!user) fail(401, "UNAUTHENTICATED", "Your session has ended.");
@@ -160,7 +160,7 @@ api.get("/profile", async (req, res) => {
 });
 api.get("/overview", async (req, res) => {
   const [[term]] = await pool.query(
-    "SELECT name,starts_on,ends_on FROM semesters WHERE active=1 AND starts_on <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date AND ends_on >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date ORDER BY starts_on DESC LIMIT 1",
+    "SELECT name,starts_on,ends_on FROM semesters WHERE active=1 AND starts_on <= CURRENT_DATE AND ends_on >= CURRENT_DATE ORDER BY starts_on DESC LIMIT 1",
   );
   if (req.user.role !== "ADMIN")
     return res.json({ data: { term: term || null } });
@@ -183,8 +183,8 @@ if (existsSync(dist + "index.html")) {
 }
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
-  const duplicate = error.code === "23505";
-  const relatedRecord = error.code === "23503";
+  const duplicate = error.code === "ER_DUP_ENTRY";
+  const relatedRecord = ["ER_NO_REFERENCED_ROW_2", "ER_ROW_IS_REFERENCED_2"].includes(error.code);
   const conflict = duplicate || relatedRecord || error.status === 409;
   const status = conflict
     ? 409
